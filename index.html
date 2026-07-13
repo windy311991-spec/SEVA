@@ -15,10 +15,9 @@
     <style>
         body {
             margin: 0;
+            padding: 0;
             background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            width: 100vw;
             height: 100vh;
             overflow: hidden;
             touch-action: none;
@@ -3395,14 +3394,14 @@ window.onload = function() {
     
     // ==================== КОНФИГ ====================
     const config = {
-        type: Phaser.AUTO, width: 640, height: 480, backgroundColor: '#0a0a2e',
+        type: Phaser.AUTO,
+        width: 640,
+        height: 480,
+        backgroundColor: '#0a0a2e',
         physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: true } },
         scale: {
             mode: Phaser.Scale.FIT,
-            autoCenter: Phaser.Scale.CENTER_BOTH,
-            width: 640,
-            height: 480,
-            roundPixels: true
+            autoCenter: Phaser.Scale.CENTER_BOTH
         },
         scene: [StartScene, RoomScene, LupinScene, BaseScene, SpaceScene, DiveScene, TitanicScene, ShoreScene, ChereshaScene, TomScene]
     };
