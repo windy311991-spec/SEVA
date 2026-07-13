@@ -7,6 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">    
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/phaser3-rex-plugins@1.1.84/dist/rexvirtualjoystickplugin.min.js"></script>    
     <style>
@@ -18,9 +21,13 @@
             align-items: center;
             height: 100vh;
             overflow: hidden;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         canvas {
             filter: grayscale(10%) sepia(5%) brightness(90%) contrast(110%);
+            touch-action: none;
         }
         #noise-overlay {
             position: fixed;
@@ -3384,12 +3391,20 @@ window.onload = function() {
     const game = new Phaser.Game(config);
     console.log('🎮 Игра готова!');
     
-    // Полноэкранный режим по клику (ПОСЛЕ config)
-    document.addEventListener('click', () => {
-        if (document.fullscreenElement) return;
-        document.documentElement.requestFullscreen().catch(() => {});
-        screen.orientation.lock('landscape').catch(() => {});
-    });
+    // Полноэкранный режим + ландшафт
+    function goFullscreen() {
+        const el = document.documentElement;
+        if (el.requestFullscreen) {
+            el.requestFullscreen().catch(() => {});
+        } else if (el.webkitRequestFullscreen) {
+            el.webkitRequestFullscreen();
+        }
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+        }
+    }
+    document.addEventListener('click', goFullscreen);
+    document.addEventListener('touchstart', goFullscreen);
 };
 </script>
 </body>
