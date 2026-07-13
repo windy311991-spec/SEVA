@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Хогвартс: Хроники Флуда</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">    
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/phaser3-rex-plugins@1.1.84/dist/rexvirtualjoystickplugin.min.js"></script>    
     <style>
@@ -3368,12 +3371,25 @@ window.onload = function() {
     const config = {
         type: Phaser.AUTO, width: 640, height: 480, backgroundColor: '#0a0a2e',
         physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: true } },
-        scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, roundPixels: true, max: { width: 640, height: 480 } },
+        scale: {
+            mode: Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+            width: 640,
+            height: 480,
+            roundPixels: true
+        },
         scene: [StartScene, RoomScene, LupinScene, BaseScene, SpaceScene, DiveScene, TitanicScene, ShoreScene, ChereshaScene, TomScene]
     };
 
     const game = new Phaser.Game(config);
     console.log('🎮 Игра готова!');
+    
+    // Полноэкранный режим по клику (ПОСЛЕ config)
+    document.addEventListener('click', () => {
+        if (document.fullscreenElement) return;
+        document.documentElement.requestFullscreen().catch(() => {});
+        screen.orientation.lock('landscape').catch(() => {});
+    });
 };
 </script>
 </body>
