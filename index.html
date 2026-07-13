@@ -1,0 +1,3380 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Хогвартс: Хроники Флуда</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser3-rex-plugins@1.1.84/dist/rexvirtualjoystickplugin.min.js"></script>    
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        canvas {
+            filter: grayscale(10%) sepia(5%) brightness(90%) contrast(110%);
+        }
+        #noise-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E");
+            background-size: 256px 256px;
+            animation: noise-shift 0.5s steps(3) infinite;
+        }
+        @keyframes noise-shift {
+            0% { background-position: 0 0; }
+            33% { background-position: 64px 32px; }
+            66% { background-position: 128px 64px; }
+            100% { background-position: 192px 96px; }
+        }
+        #scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 11;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.08) 2px,
+                rgba(0, 0, 0, 0.08) 4px
+            );
+        }
+        #vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 12;
+            background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.5) 100%);
+        }
+    </style>
+</head>
+<body>
+<div id="noise-overlay"></div>
+<div id="scanlines"></div>
+<div id="vignette"></div>
+<script>
+window.onload = function() {
+
+    const S = 3;
+
+    // ==================== СЦЕНА 0: СТАРТ ====================
+    class StartScene extends Phaser.Scene {
+        constructor() { super('StartScene'); }
+
+        preload() {
+            this.load.image('seva', 'Sprite-seva-glav-vniz.png');
+            this.load.image('krovat', 'Sprite-krovat.png');
+            this.load.image('kamin', 'Sprite-kamin.png');
+            this.load.image('komod', 'Sprite-komod.png');
+        }
+
+        create() {
+            const W = 640, H = 480;
+            this.cameras.main.setBackgroundColor('#0a0a2e');
+
+            for (let i = 0; i < 50; i++) {
+                const x = Phaser.Math.Between(0, W), y = Phaser.Math.Between(0, H);
+                const s = Phaser.Math.Between(1, 3), a = Phaser.Math.Between(3, 10) / 10;
+                this.add.rectangle(x, y, s, s, 0xffffff, a);
+            }
+
+            const title = this.add.text(W/2, 120, 'ХРОНИКИ ФЛУДА', {
+                fontSize: '28px', fill: '#ffdd00', fontFamily: 'monospace',
+                stroke: '#000000', strokeThickness: 4
+            }); title.x = W/2 - title.width/2;
+
+            const sub = this.add.text(W/2, 165, 'История одного дня рождения', {
+                fontSize: '12px', fill: '#aaaaaa', fontFamily: 'monospace'
+            }); sub.x = W/2 - sub.width/2;
+
+            const btn = this.add.text(W/2, 300, '[ СТАРТ ]', {
+                fontSize: '24px', fill: '#ffffff', fontFamily: 'monospace',
+                stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333366', padding: { x: 20, y: 10 }
+            }); btn.x = W/2 - btn.width/2;
+            btn.setInteractive({ useHandCursor: true });
+            btn.on('pointerover', () => btn.setFill('#ffdd00'));
+            btn.on('pointerout', () => btn.setFill('#ffffff'));
+            btn.on('pointerdown', () => {
+                this.cameras.main.fadeOut(800, 0, 0, 0);
+                this.time.delayedCall(800, () => this.scene.start('RoomScene'));
+            });
+
+            const hint = this.add.text(W/2, 440, 'Нажми СТАРТ или пробел', {
+                fontSize: '10px', fill: '#666688', fontFamily: 'monospace'
+            }); hint.x = W/2 - hint.width/2;
+
+            this.input.keyboard.addKey('SPACE').on('down', () => {
+                this.cameras.main.fadeOut(800, 0, 0, 0);
+                this.time.delayedCall(800, () => this.scene.start('RoomScene'));
+            });
+
+            this.input.keyboard.addKey('THREE').on('down', () => {
+                this.cameras.main.fadeOut(500, 0, 0, 0);
+                this.time.delayedCall(500, () => this.scene.start('TomScene'));
+            });
+
+            this.cameras.main.fadeIn(1500, 0, 0, 0);
+            console.log('✅ Сцена 0');
+        }
+    }
+
+    // ==================== СЦЕНА 1: КОМНАТА СЕВЫ (с джойстиком) ====================
+    class RoomScene extends Phaser.Scene {
+        constructor() { super('RoomScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.storyStep = 0; this.hasFluePowder = false; this.isInBed = false;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.joyStick = null; this.actionBtn = null;
+
+            this.cameras.main.setBounds(0, 0, W, H);
+            this.physics.world.setBounds(0, 0, W, H);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const bg = this.add.graphics();
+            bg.fillStyle(0x8B7355, 1); bg.fillRect(0, 0, W, H);
+            bg.lineStyle(1, 0x7B6345, 0.2);
+            for (let x = 0; x < W; x += 32) for (let y = 0; y < H; y += 32) bg.strokeRect(x, y, 32, 32);
+
+            const rug = this.add.graphics();
+            rug.fillStyle(0xCC6644, 0.6); rug.fillRoundedRect(280, 380, 96, 40, 8); rug.setDepth(0);
+
+            const obstacles = [];
+
+            const bed = this.add.image(100, 72, 'krovat').setDisplaySize(64*S, 32*S);
+            bed.setDepth(5);
+            this.physics.add.existing(bed, true); bed.body.setSize(bed.displayWidth, bed.displayHeight); obstacles.push(bed);
+
+            const fireplace = this.add.image(360, 72, 'kamin').setDisplaySize(64*S, 32*S);
+            this.physics.add.existing(fireplace, true); fireplace.body.setSize(fireplace.displayWidth, fireplace.displayHeight); obstacles.push(fireplace);
+
+            const dresser = this.add.image(40, 400, 'komod').setDisplaySize(32*S, 32*S);
+            this.physics.add.existing(dresser, true); dresser.body.setSize(dresser.displayWidth, dresser.displayHeight); obstacles.push(dresser);
+
+            const table = this.add.rectangle(500, 400, 40*S, 28*S, 0x8B6914).setStrokeStyle(2, 0x6B4914);
+            this.physics.add.existing(table, true); table.body.setSize(40*S, 28*S); obstacles.push(table);
+            this.add.circle(500, 392, 6*S, 0xDDDDDD).setStrokeStyle(1, 0x999999).setDepth(1);
+
+            const plant = this.add.rectangle(580, 400, 16*S, 22*S, 0x336633).setStrokeStyle(2, 0x225522);
+            this.physics.add.existing(plant, true); plant.body.setSize(16*S, 22*S); obstacles.push(plant);
+            this.add.circle(580, 385, 8*S, 0x44AA44).setDepth(1);
+
+            const shelf = this.add.rectangle(520, 24, 64*S, 8*S, 0x8B6914).setStrokeStyle(1, 0x6B4914);
+            this.physics.add.existing(shelf, true); shelf.body.setSize(64*S, 8*S); obstacles.push(shelf);
+            [0xCC3333, 0x3333CC, 0x33AA33, 0xCCCC33, 0xCC33CC].forEach((c, i) => this.add.rectangle(490+i*15, 18, 10*S, 6*S, c).setDepth(1));
+
+            const cat = this.add.rectangle(320, 395, 14*S, 10*S, 0xFF8844).setStrokeStyle(2, 0xCC6622).setDepth(2);
+            this.add.circle(316, 392, 2*S, 0xFFFF00).setDepth(3); this.add.circle(324, 392, 2*S, 0xFFFF00).setDepth(3);
+            this.physics.add.existing(cat, true); cat.body.setSize(14*S, 10*S); obstacles.push(cat);
+
+            const door = this.add.rectangle(620, 240, 10*S, 32*S, 0x6B4914).setStrokeStyle(2, 0x4B2904);
+            this.physics.add.existing(door, true); door.body.setSize(10*S, 32*S); obstacles.push(door);
+            this.add.circle(618, 240, 2*S, 0xFFD700).setDepth(1);
+
+            this.player = this.physics.add.sprite(300, 300, 'seva');
+            this.player.setScale(S); this.player.setCollideWorldBounds(true); this.player.setDepth(10);
+            this.player.body.setSize(14, 24); this.player.body.setOffset(9, 4);
+
+            this.physics.add.collider(this.player, obstacles);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '14px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.actionButton = this.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = this.add.graphics().setDepth(6).setVisible(false);
+
+            this.wasd.W = this.input.keyboard.addKey('W'); this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S'); this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            // === ДЖОЙСТИК ДЛЯ ТЕЛЕФОНА ===
+            if (!this.sys.game.device.os.desktop) {
+                const joyX = 90, joyY = 390;
+                const base = this.add.circle(joyX, joyY, 50, 0x333333, 0.5).setDepth(200).setScrollFactor(0);
+                const thumb = this.add.circle(joyX, joyY, 25, 0x888888, 0.7).setDepth(201).setScrollFactor(0);
+                
+                this.joyStick = { base, thumb, forceX: 0, forceY: 0, active: false };
+                
+                this.input.on('pointerdown', (pointer) => {
+                    const dx = pointer.x - joyX;
+                    const dy = pointer.y - joyY;
+                    if (Math.sqrt(dx*dx + dy*dy) < 80) {
+                        this.joyStick.active = true;
+                    }
+                });
+                
+                this.input.on('pointermove', (pointer) => {
+                    if (!this.joyStick || !this.joyStick.active) return;
+                    const dx = pointer.x - joyX;
+                    const dy = pointer.y - joyY;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    const maxDist = 40;
+                    
+                    if (dist > maxDist) {
+                        this.joyStick.forceX = dx / dist;
+                        this.joyStick.forceY = dy / dist;
+                        thumb.x = joyX + this.joyStick.forceX * maxDist;
+                        thumb.y = joyY + this.joyStick.forceY * maxDist;
+                    } else if (dist > 10) {
+                        this.joyStick.forceX = dx / maxDist;
+                        this.joyStick.forceY = dy / maxDist;
+                        thumb.x = pointer.x;
+                        thumb.y = pointer.y;
+                    } else {
+                        this.joyStick.forceX = 0;
+                        this.joyStick.forceY = 0;
+                        thumb.x = joyX;
+                        thumb.y = joyY;
+                    }
+                });
+                
+                this.input.on('pointerup', () => {
+                    if (!this.joyStick) return;
+                    this.joyStick.active = false;
+                    this.joyStick.forceX = 0;
+                    this.joyStick.forceY = 0;
+                    thumb.x = joyX;
+                    thumb.y = joyY;
+                });
+
+                // Кнопка E
+                const btnX = 550, btnY = 390;
+                this.actionBtn = this.add.circle(btnX, btnY, 30, 0xffdd00, 0.6).setDepth(200).setScrollFactor(0);
+                const btnText = this.add.text(btnX, btnY, 'E', {
+                    fontSize: '20px', fill: '#000000', fontFamily: 'monospace'
+                }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
+                
+                this.actionBtn.setInteractive({ useHandCursor: true });
+                this.actionBtn.on('pointerdown', () => {
+                    if (this.actionKey) this.actionKey.emit('down');
+                    if (typeof doAction === 'function') doAction();
+                });
+                this.actionBtn.on('pointerup', () => {
+                    if (this.actionKey) this.actionKey.emit('up');
+                });
+            }
+
+            const scene = this;
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText('Мысли: ' + text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { scene.thoughtText.setAlpha(0); }
+            function doStoryThought(text, duration = 3000) {
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+                thoughtTimer = setTimeout(hideThought, duration);
+            }
+
+            scene.getActionZones = function() {
+                return [
+                    { x: 100, y: 72,  range: 110, action: 'krovat', color: 0xff4444 },
+                    { x: 360, y: 72,  range: 110, action: 'kamin',  color: 0xff8800 },
+                    { x: 40,  y: 400, range: 90,  action: 'komod',  color: 0x44aaff },
+                    { x: 320, y: 395, range: 55,  action: 'cat',    color: 0x44ff44 },
+                    { x: 500, y: 400, range: 80,  action: 'table',  color: 0xffff44 },
+                    { x: 620, y: 240, range: 55,  action: 'door',   color: 0xff44ff },
+                ];
+            };
+
+            function doAction() {
+                if (!scene.currentAction) return;
+                if (thoughtTimer) clearTimeout(thoughtTimer); hideThought();
+
+                switch(scene.currentAction) {
+                    case 'krovat':
+                        if (scene.storyStep === 0) {
+                            scene.isInBed = true;
+                            scene.player.setDepth(15);
+                            scene.player.setAngle(-90);
+                            scene.player.y = 84;
+                            scene.player.body.enable = false;
+                            scene.actionButton.setAlpha(0);
+                            doStoryThought('Zzz...', 2000);
+                            setTimeout(() => {
+                                doStoryThought('Точно! Сегодня же с Кирой в гости к Черемше...', 3000);
+                                setTimeout(() => {
+                                    scene.isInBed = false;
+                                    scene.player.setAngle(0);
+                                    scene.player.setDepth(10);
+                                    scene.player.y = 140;
+                                    scene.player.body.enable = true;
+                                    scene.storyStep = 1;
+                                    doStoryThought('Надо взять летучий порох из комода...', 3000);
+                                }, 3000);
+                            }, 2000);
+                        } else if (scene.storyStep >= 1 && scene.isInBed) {
+                            scene.isInBed = false;
+                            scene.player.setAngle(0);
+                            scene.player.setDepth(10);
+                            scene.player.y = 140;
+                            scene.player.body.enable = true;
+                            doStoryThought('Надо взять летучий порох из комода...', 3000);
+                        } else {
+                            showThought('Я уже выспалась...'); thoughtTimer = setTimeout(hideThought, 2000);
+                        }
+                        break;
+                    case 'kamin':
+                        if (scene.hasFluePowder) {
+                            doStoryThought('Пора к Римусу! ✨', 1500);
+                            scene.time.delayedCall(1500, () => {
+                                scene.cameras.main.fadeOut(800, 0, 0, 0);
+                                scene.time.delayedCall(800, () => scene.scene.start('LupinScene'));
+                            });
+                        } else { showThought('Нужен летучий порох...'); thoughtTimer = setTimeout(hideThought, 2000); }
+                        break;
+                    case 'komod':
+                        if (!scene.hasFluePowder && scene.storyStep >= 1) {
+                            scene.hasFluePowder = true; scene.inventory.push('Летучий порох'); scene.storyStep = 2;
+                            doStoryThought('В комоде летучий порох! Теперь к камину!', 2500);
+                        } else if (scene.hasFluePowder) { showThought('Я уже взяла порох.'); thoughtTimer = setTimeout(hideThought, 2000); }
+                        else { showThought('Пока не время...'); thoughtTimer = setTimeout(hideThought, 2000); }
+                        break;
+                    case 'cat': showThought('Мяу! Грей, ты мой хороший...'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                    case 'table': showThought('Кружка с чаем. Ещё тёплая.'); thoughtTimer = setTimeout(hideThought, 2000); break;
+                    case 'door': showThought('Заперто. Да и не хочется на улицу.'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                }
+            }
+
+            this.actionKey.on('down', doAction);
+
+            this.checkZones = function() {
+                if (scene.isInBed) {
+                    if (scene.storyStep >= 1) {
+                        scene.currentAction = 'krovat'; scene.actionButton.setAlpha(1); scene.actionButton.setText('[E] Встать');
+                    } else { scene.currentAction = null; scene.actionButton.setAlpha(0); }
+                    return;
+                }
+                const zones = scene.getActionZones();
+                let found = null;
+                for (const z of zones) {
+                    if (Phaser.Math.Distance.Between(scene.player.x, scene.player.y, z.x, z.y) < z.range) { found = z; break; }
+                }
+                if (found) {
+                    scene.currentAction = found.action; scene.actionButton.setAlpha(1);
+                    switch(found.action) {
+                        case 'krovat': scene.actionButton.setText(scene.storyStep===0?'[E] Лечь':'[E] Кровать'); break;
+                        case 'kamin': scene.actionButton.setText('[E] Камин'); break;
+                        case 'komod': scene.actionButton.setText('[E] Комод'); break;
+                        case 'cat': scene.actionButton.setText('[E] Погладить'); break;
+                        case 'table': scene.actionButton.setText('[E] Стол'); break;
+                        case 'door': scene.actionButton.setText('[E] Дверь'); break;
+                    }
+                } else { scene.currentAction = null; scene.actionButton.setAlpha(0); }
+            };
+
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+
+            this.updateZoneGraphics = function() {
+                scene.zoneGraphics.clear();
+                if (!scene.showZones) return;
+                for (const z of scene.getActionZones()) {
+                    scene.zoneGraphics.fillStyle(z.color, 0.15);
+                    scene.zoneGraphics.fillCircle(z.x, z.y, z.range);
+                    scene.zoneGraphics.lineStyle(2, z.color, 0.6);
+                    scene.zoneGraphics.strokeCircle(z.x, z.y, z.range);
+                }
+            };
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => doStoryThought('Доброе утро... 14 лет? Не, я лучше дальше спать...', 3000));
+            console.log('✅ Сцена 1 (с джойстиком)');
+        }
+
+        update() {
+            if (this.hKey && this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                if (this.coordsText) this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey ? this.hKey.isDown : false;
+            if (this.showCoords && this.player && this.coordsText) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.checkZones) this.checkZones();
+            if (this.updateInventoryUI) this.updateInventoryUI();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+
+            if (this.fKey && this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey ? this.fKey.isDown : false;
+
+            if (this.gKey && this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                if (this.zoneGraphics) this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey ? this.gKey.isDown : false;
+
+            if (this.qKey && this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey ? this.qKey.isDown : false;
+
+            // Движение
+            if (this.speedReady && !this.isInBed) {
+                const speed = 250;
+                
+                if (!this.sys.game.device.os.desktop && this.joyStick) {
+                    // Телефон — джойстик
+                    if (this.joyStick.forceX !== 0 || this.joyStick.forceY !== 0) {
+                        this.player.setVelocity(
+                            this.joyStick.forceX * speed,
+                            this.joyStick.forceY * speed
+                        );
+                    } else {
+                        this.player.setVelocity(0, 0);
+                    }
+                } else if (this.sys.game.device.os.desktop && this.wasd) {
+                    // Компьютер — WASD
+                    this.player.setVelocity(0);
+                    if (this.wasd.A && this.wasd.A.isDown) this.player.setVelocityX(-speed);
+                    if (this.wasd.D && this.wasd.D.isDown) this.player.setVelocityX(speed);
+                    if (this.wasd.W && this.wasd.W.isDown) this.player.setVelocityY(-speed);
+                    if (this.wasd.S && this.wasd.S.isDown) this.player.setVelocityY(speed);
+                    const vx = this.player.body.velocity.x, vy = this.player.body.velocity.y;
+                    if (vx !== 0 && vy !== 0) {
+                        this.player.setVelocity(vx * speed / Math.sqrt(vx*vx+vy*vy), vy * speed / Math.sqrt(vx*vx+vy*vy));
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================== СЦЕНА 2: ДОМ ЛЮПИНА ====================
+    class LupinScene extends Phaser.Scene {
+        constructor() { super('LupinScene'); }
+
+        create() {
+            const W = 640, H = 480, worldW = 1600, worldH = 480;
+            const S = 3;
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.metYulia = false;
+            this.kiraOut = false;
+            this.dialogueActive = false;
+
+            this.cameras.main.setBounds(0, 0, worldW, worldH);
+            this.physics.world.setBounds(0, 0, worldW, worldH);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const bg = this.add.graphics();
+            bg.fillStyle(0x7B6B5A, 1); bg.fillRect(0, 0, worldW, worldH);
+            bg.lineStyle(1, 0x6B5B4A, 0.2);
+            for (let x = 0; x < worldW; x += 32) for (let y = 0; y < worldH; y += 32) bg.strokeRect(x, y, 32, 32);
+
+            const obstacles = [];
+
+            const fp2 = this.add.image(100, 72, 'kamin').setDisplaySize(64*S, 32*S);
+            this.physics.add.existing(fp2, true); fp2.body.setSize(64*S, 32*S); obstacles.push(fp2);
+
+            const gapY = 220, gapH = 200, wallTop = gapY - gapH/2, wallBot = gapY + gapH/2;
+            const w1t = this.add.rectangle(530, wallTop/2, 8, wallTop, 0x5A4A3A);
+            this.physics.add.existing(w1t, true); w1t.body.setSize(8, wallTop); obstacles.push(w1t);
+            const w1b = this.add.rectangle(530, wallBot+(H-wallBot)/2, 8, H-wallBot, 0x5A4A3A);
+            this.physics.add.existing(w1b, true); w1b.body.setSize(8, H-wallBot); obstacles.push(w1b);
+
+            const bedYulia = this.add.image(620, 100, 'krovat').setDisplaySize(64*S, 32*S);
+            this.physics.add.existing(bedYulia, true); bedYulia.body.setSize(64*S, 32*S); obstacles.push(bedYulia);
+            const bedKira = this.add.image(750, 140, 'krovat').setDisplaySize(64*S, 32*S);
+            this.physics.add.existing(bedKira, true); bedKira.body.setSize(64*S, 32*S); obstacles.push(bedKira);
+
+            const table2 = this.add.rectangle(850, 380, 36*S, 24*S, 0x8B6914).setStrokeStyle(2, 0x6B4914);
+            this.physics.add.existing(table2, true); table2.body.setSize(36*S, 24*S); obstacles.push(table2);
+
+            const yulia = this.add.rectangle(700, 350, 20*S, 24*S, 0xFFB6C1).setStrokeStyle(2, 0xFF69B4).setDepth(8);
+            this.add.circle(694, 342, 2*S, 0x000000).setDepth(9); this.add.circle(706, 342, 2*S, 0x000000).setDepth(9);
+            this.add.rectangle(700, 354, 8*S, 2*S, 0x000000).setDepth(9);
+            this.physics.add.existing(yulia, true); yulia.body.setSize(20*S, 24*S); obstacles.push(yulia);
+
+            const w2t = this.add.rectangle(1060, wallTop/2, 8, wallTop, 0x5A4A3A);
+            this.physics.add.existing(w2t, true); w2t.body.setSize(8, wallTop); obstacles.push(w2t);
+            const w2b = this.add.rectangle(1060, wallBot+(H-wallBot)/2, 8, H-wallBot, 0x5A4A3A);
+            this.physics.add.existing(w2b, true); w2b.body.setSize(8, H-wallBot); obstacles.push(w2b);
+
+            const fridge = this.add.rectangle(1150, 100, 28*S, 40*S, 0xCCCCCC).setStrokeStyle(3, 0x888888);
+            this.physics.add.existing(fridge, true); fridge.body.setSize(28*S, 40*S); obstacles.push(fridge);
+            this.add.rectangle(1168, 100, 4*S, 12*S, 0x666666).setDepth(1);
+
+            const kira = this.add.rectangle(1200, 160, 20*S, 24*S, 0xADD8E6).setStrokeStyle(2, 0x6699CC).setDepth(8).setVisible(false);
+            const kiraEyeL = this.add.circle(1194, 152, 2*S, 0x000000).setDepth(9).setVisible(false);
+            const kiraEyeR = this.add.circle(1206, 152, 2*S, 0x000000).setDepth(9).setVisible(false);
+            const kiraMouth = this.add.rectangle(1200, 164, 8*S, 2*S, 0x000000).setDepth(9).setVisible(false);
+            let kiraBody = null;
+
+            const stove = this.add.rectangle(1350, 100, 40*S, 28*S, 0x555555).setStrokeStyle(2, 0x333333);
+            this.physics.add.existing(stove, true); stove.body.setSize(40*S, 28*S); obstacles.push(stove);
+            this.add.circle(1340, 95, 5*S, 0x333333).setDepth(1); this.add.circle(1360, 95, 5*S, 0x333333).setDepth(1);
+
+            const table3 = this.add.rectangle(1300, 380, 50*S, 28*S, 0x8B6914).setStrokeStyle(2, 0x6B4914);
+            this.physics.add.existing(table3, true); table3.body.setSize(50*S, 28*S); obstacles.push(table3);
+
+            const sofa2 = this.add.rectangle(1450, 400, 60*S, 24*S, 0x886644).setStrokeStyle(2, 0x664422);
+            this.physics.add.existing(sofa2, true); sofa2.body.setSize(60*S, 24*S); obstacles.push(sofa2);
+
+            this.player = this.physics.add.sprite(200, 250, 'seva');
+            this.player.setScale(S); this.player.setCollideWorldBounds(true); this.player.setDepth(10);
+            this.player.body.setSize(14, 24); this.player.body.setOffset(9, 4);
+
+            this.physics.add.collider(this.player, obstacles);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '16px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.actionButton = this.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = this.add.graphics().setDepth(6).setVisible(false);
+
+            this.wasd.W = this.input.keyboard.addKey('W'); this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S'); this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            const scene = this;
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) { scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1); }
+            function hideThought() { scene.thoughtText.setAlpha(0); scene.dialogueActive = false; }
+            function doStoryThought(text, duration = 3000) {
+                scene.dialogueActive = true; scene.actionButton.setAlpha(0);
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+                thoughtTimer = setTimeout(hideThought, duration);
+            }
+
+            function talkToYulia() {
+                if (scene.dialogueActive) return;
+                scene.dialogueActive = true; scene.actionButton.setAlpha(0);
+                doStoryThought('Юля: "О, Сева! Привет!"', 2500);
+                scene.time.delayedCall(2500, () => doStoryThought('Сева: "Юля, где ваша мама?"', 2500));
+                scene.time.delayedCall(5000, () => doStoryThought('Юля: "На работе."', 2000));
+                scene.time.delayedCall(7000, () => doStoryThought('Сева: "А Римус где?"', 2000));
+                scene.time.delayedCall(9000, () => doStoryThought('Юля: "В пять утра выбежал из дома с криком \"У меня новая идея!\""', 3500));
+                scene.time.delayedCall(12500, () => doStoryThought('Сева: "Так, ладно... А Кира где?"', 2500));
+                scene.time.delayedCall(15000, () => { doStoryThought('Юля: "Кира где-то в квартире. Поищи."', 3000); scene.metYulia = true; });
+            }
+
+            function openFridge() {
+                if (scene.dialogueActive || !scene.metYulia || scene.kiraOut) return;
+                scene.dialogueActive = true; scene.actionButton.setAlpha(0);
+                doStoryThought('Сева: "Открываю холодильник..."', 2000);
+                scene.time.delayedCall(2000, () => {
+                    doStoryThought('*Из холодильника выходит Кира*', 2500);
+                    kira.setVisible(true); kiraEyeL.setVisible(true); kiraEyeR.setVisible(true); kiraMouth.setVisible(true);
+                    if (!kiraBody) { kiraBody = scene.add.zone(1200, 160, 20*S, 24*S); scene.physics.add.existing(kiraBody, true); kiraBody.body.setSize(20*S, 24*S); scene.physics.add.collider(scene.player, kiraBody); }
+                    scene.kiraOut = true;
+                });
+                scene.time.delayedCall(4500, () => doStoryThought('Кира: "Привет! Я тут охлаждалась."', 2500));
+                scene.time.delayedCall(7000, () => doStoryThought('Сева: "Мы хотели в гости к Черемше, помнишь?"', 3000));
+                scene.time.delayedCall(10000, () => doStoryThought('Кира: "Точно! Но сначала — на Солнце, а потом поднять Титаник."', 3500));
+                scene.time.delayedCall(13500, () => doStoryThought('Сева: "Ладно, пошли! Только надо пробраться на военную базу за ракетой."', 3000));
+                scene.time.delayedCall(16500, () => doStoryThought('Кира: "Я за тобой!"', 1500));
+                scene.time.delayedCall(18500, () => {
+                    scene.cameras.main.fadeOut(800, 0, 0, 0);
+                    scene.time.delayedCall(800, () => scene.scene.start('BaseScene'));
+                });
+            }
+
+            scene.getActionZones = function() {
+                const zones = [
+                    { x: 100, y: 72, range: 110, action: 'fireplace2', color: 0xff8800 },
+                    { x: 620, y: 100, range: 110, action: 'bedYulia', color: 0xff69b4 },
+                    { x: 750, y: 140, range: 110, action: 'bedKira', color: 0x6699cc },
+                    { x: 700, y: 350, range: 80, action: 'yulia', color: 0xffb6c1 },
+                    { x: 1150, y: 100, range: 90, action: 'fridge', color: 0x44aaff },
+                    { x: 1350, y: 100, range: 80, action: 'stove', color: 0xff6644 },
+                    { x: 1450, y: 400, range: 90, action: 'sofa', color: 0x44ff44 },
+                ];
+                if (scene.kiraOut) zones.push({ x: 1200, y: 160, range: 80, action: 'kira', color: 0xadd8e6 });
+                return zones;
+            };
+
+            function doAction() {
+                if (scene.dialogueActive || !scene.currentAction) return;
+                if (thoughtTimer) clearTimeout(thoughtTimer); hideThought();
+                switch(scene.currentAction) {
+                    case 'fireplace2': showThought('Камин. Отсюда я пришла.'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                    case 'bedYulia': showThought('Кровать Юли. Розовое постельное бельё.'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                    case 'bedKira': showThought('Кровать Киры. Кажется, она не спала.'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                    case 'yulia': talkToYulia(); break;
+                    case 'fridge': if (!scene.metYulia) { showThought('Надо сначала найти Киру... Может, Юля знает?'); thoughtTimer = setTimeout(hideThought, 2500); } else { openFridge(); } break;
+                    case 'stove': showThought('Плита. Кто-то готовил зелья...'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                    case 'sofa': showThought('Тут обычно спит Римус...'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                    case 'kira': showThought('Кира: "Ну что, идём?"'); thoughtTimer = setTimeout(hideThought, 2500); break;
+                }
+            }
+
+            this.actionKey.on('down', doAction);
+
+            this.checkZones = function() {
+                if (scene.dialogueActive) { scene.actionButton.setAlpha(0); return; }
+                const zones = scene.getActionZones(); let found = null;
+                for (const z of zones) { if (Phaser.Math.Distance.Between(scene.player.x, scene.player.y, z.x, z.y) < z.range) { found = z; break; } }
+                if (found) {
+                    scene.currentAction = found.action; scene.actionButton.setAlpha(1);
+                    switch(found.action) {
+                        case 'fireplace2': scene.actionButton.setText('[E] Камин'); break;
+                        case 'bedYulia': scene.actionButton.setText('[E] Кровать Юли'); break;
+                        case 'bedKira': scene.actionButton.setText('[E] Кровать Киры'); break;
+                        case 'yulia': scene.actionButton.setText('[E] Юля'); break;
+                        case 'fridge': scene.actionButton.setText(scene.kiraOut ? '[E] Холодильник' : '[E] Открыть'); break;
+                        case 'stove': scene.actionButton.setText('[E] Плита'); break;
+                        case 'sofa': scene.actionButton.setText('[E] Диван'); break;
+                        case 'kira': scene.actionButton.setText('[E] Кира'); break;
+                    }
+                } else { scene.currentAction = null; scene.actionButton.setAlpha(0); }
+            };
+
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+
+            this.updateZoneGraphics = function() {
+                scene.zoneGraphics.clear(); if (!scene.showZones) return;
+                for (const z of scene.getActionZones()) { scene.zoneGraphics.fillStyle(z.color, 0.15); scene.zoneGraphics.fillCircle(z.x, z.y, z.range); scene.zoneGraphics.lineStyle(2, z.color, 0.6); scene.zoneGraphics.strokeCircle(z.x, z.y, z.range); }
+            };
+
+            const roomScene = this.scene.get('RoomScene');
+            if (roomScene && roomScene.inventory) this.inventory = [...roomScene.inventory];
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => showThought('Так, я у Римуса... Надо найти Киру.', 3000));
+            console.log('✅ Сцена 2');
+        }
+
+        update() {
+            if (this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey.isDown;
+            if (this.showCoords && this.player) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.checkZones) this.checkZones();
+            if (this.updateInventoryUI) this.updateInventoryUI();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+            if (this.fKey.isDown && !this.fWasDown) { this.showDebug = !this.showDebug; if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug; this.physics.world.drawDebug = this.showDebug; } this.fWasDown = this.fKey.isDown;
+            if (this.gKey.isDown && !this.gWasDown) { this.showZones = !this.showZones; this.zoneGraphics.setVisible(this.showZones); } this.gWasDown = this.gKey.isDown;
+            if (this.qKey.isDown && !this.qWasDown) { this.showInventory = !this.showInventory; } this.qWasDown = this.qKey.isDown;
+            if (this.sys.game.device.os.desktop && this.speedReady) {
+                const speed = 250; this.player.setVelocity(0);
+                if (this.wasd.A.isDown) this.player.setVelocityX(-speed);
+                if (this.wasd.D.isDown) this.player.setVelocityX(speed);
+                if (this.wasd.W.isDown) this.player.setVelocityY(-speed);
+                if (this.wasd.S.isDown) this.player.setVelocityY(speed);
+                const vx = this.player.body.velocity.x, vy = this.player.body.velocity.y;
+                if (vx !== 0 && vy !== 0) this.player.setVelocity(vx * speed / Math.sqrt(vx*vx+vy*vy), vy * speed / Math.sqrt(vx*vx+vy*vy));
+            }
+        }
+    }  
+
+    // ==================== СЦЕНА 3: ВОЕННАЯ БАЗА (с Кирой) ====================
+    class BaseScene extends Phaser.Scene {
+        constructor() { super('BaseScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            const worldW = 1200, worldH = 480;
+            const S = 3;
+
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.kira = null; this.kiraGfx = null;
+            this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.dialogueActive = false;
+            this.detected = false;
+            this.obstacles = [];
+            this.kiraPath = [];
+            this.kiraEyeL = null;
+            this.kiraEyeR = null;
+            this.kiraMouth = null;
+
+            this.cameras.main.setBounds(0, 0, worldW, worldH);
+            this.physics.world.setBounds(0, 0, worldW, worldH);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const bg = this.add.graphics();
+            bg.fillStyle(0x666666, 1); bg.fillRect(0, 0, worldW, worldH);
+            bg.lineStyle(1, 0x555555, 0.3);
+            for (let x = 0; x < worldW; x += 32) for (let y = 0; y < worldH; y += 32) bg.strokeRect(x, y, 32, 32);
+
+            const scene = this;
+
+            function addWall(x, y, w, h) {
+                const wall = this.add.rectangle(x + w/2, y + h/2, w, h, 0x888888);
+                wall.setStrokeStyle(2, 0x666666);
+                this.physics.add.existing(wall, true);
+                wall.body.setSize(w, h);
+                scene.obstacles.push(wall);
+            }
+
+            // Внешние стены
+            addWall.call(this, 0, 0, worldW, 8);
+            addWall.call(this, 0, worldH-8, worldW, 8);
+            addWall.call(this, 0, 0, 8, worldH);
+            addWall.call(this, worldW-8, 0, 8, worldH);
+
+            // Лабиринт (твои правки)
+            addWall.call(this, 200, 60, 8, 160);
+            addWall.call(this, 200, 340, 200, 8);
+            addWall.call(this, 400, 120, 8, 220);
+            addWall.call(this, 400, 120, 240, 8);
+            addWall.call(this, 640, 380, 200, 8);
+            addWall.call(this, 840, 120, 8, 320);
+            addWall.call(this, 640, 120, 120, 8);
+            addWall.call(this, 960, 60, 8, 120);
+            addWall.call(this, 960, 260, 8, 160);
+
+            // === КАМЕРЫ ===
+            const cameras = [];
+            
+            function createCamera(x, y, patrolMin, patrolMax, isHorizontal, speed, coneW, coneH) {
+                const cam = scene.add.rectangle(x, y, 14, 14, 0xff0000);
+                cam.setStrokeStyle(2, 0xcc0000); cam.setDepth(5);
+                const cone = scene.add.graphics().setDepth(4);
+                const camData = { obj: cam, cone: cone, min: patrolMin, max: patrolMax, horizontal: isHorizontal, speed: speed, coneW: coneW, coneH: coneH, dir: 1 };
+                cameras.push(camData);
+                return camData;
+            }
+
+            createCamera(300, 100, 100, 380, true, 1.5, 160, 60);
+            createCamera(520, 280, 200, 440, false, 0.8, 60, 140);
+            createCamera(740, 100, 100, 380, true, 1.8, 160, 60);
+            createCamera(880, 360, 260, 420, true, 1.2, 140, 60);
+            createCamera(1000, 200, 100, 380, false, 1, 60, 140);
+
+            // === РАКЕТА ===
+            const rocket = scene.add.rectangle(1100, 200, 40*S, 24*S, 0xCCCCCC);
+            rocket.setStrokeStyle(3, 0xFFD700); rocket.setDepth(2);
+            scene.add.triangle(1100, 170, 0, 10*S, 10*S, 0, 20*S, 10*S, 0xFF4444).setDepth(3);
+            const fireAnim = scene.add.triangle(1100, 190, 5*S, 0, 15*S, 6*S, 25*S, 0, 0xFF8800).setDepth(3);
+            scene.tweens.add({ targets: fireAnim, scaleY: 1.3, duration: 200, yoyo: true, repeat: -1 });
+            scene.physics.add.existing(rocket, true);
+            rocket.body.setSize(40*S, 24*S);
+            scene.obstacles.push(rocket);
+
+            // === КИРА (физическое тело + визуал) ===
+            // Физика
+            this.kira = scene.add.zone(30, 240, 20*S, 24*S);
+            scene.physics.add.existing(this.kira, false);
+            this.kira.body.setSize(20*S, 24*S);
+            this.kira.body.setCollideWorldBounds(true);
+            
+            // Визуал
+            this.kiraGfx = scene.add.rectangle(30, 240, 20*S, 24*S, 0xADD8E6);
+            this.kiraGfx.setStrokeStyle(2, 0x6699CC); this.kiraGfx.setDepth(8);
+            this.kiraEyeL = scene.add.circle(24, 232, 2*S, 0x000000).setDepth(9);
+            this.kiraEyeR = scene.add.circle(36, 232, 2*S, 0x000000).setDepth(9);
+            this.kiraMouth = scene.add.rectangle(30, 244, 8*S, 2*S, 0x000000).setDepth(9);
+            
+            for (let i = 0; i < 25; i++) this.kiraPath.push({ x: 50, y: 240 });
+
+            // === ИГРОК ===
+            this.player = this.physics.add.sprite(50, 240, 'seva');
+            this.player.setScale(S); this.player.setCollideWorldBounds(true); this.player.setDepth(10);
+            this.player.body.setSize(14, 24); this.player.body.setOffset(9, 4);
+
+            this.physics.add.collider(this.player, this.obstacles);
+            this.physics.add.collider(this.kira, this.obstacles);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            // === UI ===
+            scene.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = scene.add.text(320, 470, '', {
+                fontSize: '16px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.actionButton = scene.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = scene.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = scene.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = scene.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            this.coordsText = scene.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = scene.add.graphics().setDepth(6).setVisible(false);
+
+            this.wasd.W = this.input.keyboard.addKey('W'); this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S'); this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { 
+                scene.thoughtText.setAlpha(0); 
+                scene.dialogueActive = false;
+            }
+            function doStoryThought(text, duration = 3000) {
+                scene.dialogueActive = true;
+                scene.actionButton.setAlpha(0);
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+                thoughtTimer = setTimeout(hideThought, duration);
+            }
+
+            function isCharInCone(charX, charY, charW, charH, cam) {
+                const points = [
+                    { x: charX, y: charY },
+                    { x: charX - charW/2, y: charY - charH/2 },
+                    { x: charX + charW/2, y: charY - charH/2 },
+                    { x: charX - charW/2, y: charY + charH/2 },
+                    { x: charX + charW/2, y: charY + charH/2 },
+                ];
+                for (const p of points) {
+                    const dx = p.x - cam.obj.x;
+                    const dy = p.y - cam.obj.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    const maxDist = Math.max(cam.coneW, cam.coneH);
+                    if (dist < maxDist) {
+                        if (cam.horizontal) {
+                            const dir = cam.dir;
+                            if (dx * dir > 0 && dx * dir < cam.coneW && Math.abs(dy) < cam.coneH/2) return true;
+                        } else {
+                            const dir = cam.dir;
+                            if (dy * dir > 0 && dy * dir < cam.coneH && Math.abs(dx) < cam.coneW/2) return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            scene.getActionZones = function() {
+                return [{ x: 1100, y: 200, range: 90, action: 'rocket', color: 0xFFD700 }];
+            };
+
+            function doAction() {
+                if (scene.dialogueActive || scene.detected) return;
+                if (!scene.currentAction) return;
+                if (thoughtTimer) clearTimeout(thoughtTimer); hideThought();
+                if (scene.currentAction === 'rocket') {
+                    doStoryThought('Ракета! Быстрее на борт! 🚀', 2000);
+                    scene.time.delayedCall(2000, () => {
+                        scene.cameras.main.fadeOut(800, 0, 0, 0);
+                        scene.time.delayedCall(800, () => scene.scene.start('SpaceScene'));
+                    });
+                }
+            }
+
+            this.actionKey.on('down', doAction);
+
+            this.checkZones = function() {
+                if (scene.dialogueActive || scene.detected) { scene.actionButton.setAlpha(0); return; }
+                const zones = scene.getActionZones();
+                let found = null;
+                for (const z of zones) {
+                    if (Phaser.Math.Distance.Between(scene.player.x, scene.player.y, z.x, z.y) < z.range) { found = z; break; }
+                }
+                if (found) {
+                    scene.currentAction = found.action; scene.actionButton.setAlpha(1);
+                    scene.actionButton.setText('[E] Запустить');
+                } else { scene.currentAction = null; scene.actionButton.setAlpha(0); }
+            };
+
+            this.checkDetection = function() {
+                if (scene.detected) return;
+                for (const cam of cameras) {
+                    const sevaW = 42, sevaH = 72;
+                    const kiraW = 60, kiraH = 72;
+                    const sevaDetected = isCharInCone(scene.player.x, scene.player.y, sevaW, sevaH, cam);
+                    const kiraDetected = isCharInCone(scene.kira.x, scene.kira.y, kiraW, kiraH, cam);
+                    if (sevaDetected || kiraDetected) {
+                        scene.detected = true;
+                        const who = sevaDetected ? 'Сева' : 'Кира';
+                        doStoryThought('🚨 ' + who + ' заметили! Прячемся обратно...', 2000);
+                        scene.time.delayedCall(2000, () => {
+                            scene.detected = false;
+                            scene.player.setPosition(50, 240);
+                            scene.kira.setPosition(30, 240);
+                            scene.kira.body.setVelocity(0, 0);
+                            scene.kiraGfx.setPosition(30, 240);
+                            scene.kiraEyeL.setPosition(24, 232);
+                            scene.kiraEyeR.setPosition(36, 232);
+                            scene.kiraMouth.setPosition(30, 244);
+                            scene.kiraPath = [];
+                            for (let i = 0; i < 25; i++) scene.kiraPath.push({ x: 50, y: 240 });
+                            hideThought();
+                        });
+                        break;
+                    }
+                }
+            };
+
+            this.updateCameras = function() {
+                for (const cam of cameras) {
+                    if (cam.horizontal) {
+                        cam.obj.x += cam.speed * cam.dir;
+                        if (cam.obj.x >= cam.max) cam.dir = -1;
+                        if (cam.obj.x <= cam.min) cam.dir = 1;
+                        cam.cone.clear();
+                        cam.cone.fillStyle(0xffff00, 0.25);
+                        const cx = cam.obj.x, cy = cam.obj.y, dir = cam.dir;
+                        cam.cone.fillTriangle(cx, cy, cx+dir*cam.coneW, cy-cam.coneH/2, cx+dir*cam.coneW, cy+cam.coneH/2);
+                    } else {
+                        cam.obj.y += cam.speed * cam.dir;
+                        if (cam.obj.y >= cam.max) cam.dir = -1;
+                        if (cam.obj.y <= cam.min) cam.dir = 1;
+                        cam.cone.clear();
+                        cam.cone.fillStyle(0xffff00, 0.25);
+                        const cx = cam.obj.x, cy = cam.obj.y, dir = cam.dir;
+                        cam.cone.fillTriangle(cx, cy, cx-cam.coneW/2, cy+dir*cam.coneH, cx+cam.coneW/2, cy+dir*cam.coneH);
+                    }
+                }
+            };
+
+            this.updateKira = function() {
+                scene.kiraPath.push({ x: scene.player.x, y: scene.player.y });
+                if (scene.kiraPath.length > 25) scene.kiraPath.shift();
+                const target = scene.kiraPath[0];
+                const dx = target.x - scene.kira.x;
+                const dy = target.y - scene.kira.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > 2) {
+                    const speed = 120;
+                    scene.kira.body.setVelocity((dx / dist) * speed, (dy / dist) * speed);
+                } else {
+                    scene.kira.body.setVelocity(0, 0);
+                }
+                // Визуал за физикой
+                scene.kiraGfx.setPosition(scene.kira.x, scene.kira.y);
+                scene.kiraEyeL.setPosition(scene.kira.x - 6, scene.kira.y - 8);
+                scene.kiraEyeR.setPosition(scene.kira.x + 6, scene.kira.y - 8);
+                scene.kiraMouth.setPosition(scene.kira.x, scene.kira.y + 4);
+            };
+
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+
+            this.updateZoneGraphics = function() {
+                scene.zoneGraphics.clear();
+                if (!scene.showZones) return;
+                for (const z of scene.getActionZones()) {
+                    scene.zoneGraphics.fillStyle(z.color, 0.15);
+                    scene.zoneGraphics.fillCircle(z.x, z.y, z.range);
+                    scene.zoneGraphics.lineStyle(2, z.color, 0.6);
+                    scene.zoneGraphics.strokeCircle(z.x, z.y, z.range);
+                }
+            };
+
+            const prevScene = this.scene.get('LupinScene');
+            if (prevScene && prevScene.inventory) this.inventory = [...prevScene.inventory];
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => showThought('Кира, за мной! Только тихо...', 3000));
+            console.log('✅ Сцена 3: Кира с физикой, стены правленые.');
+        }
+
+        update() {
+            if (this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey.isDown;
+            if (this.showCoords && this.player) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.checkZones) this.checkZones();
+            if (this.checkDetection) this.checkDetection();
+            if (this.updateCameras) this.updateCameras();
+            if (this.updateKira) this.updateKira();
+            if (this.updateInventoryUI) this.updateInventoryUI();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+
+            if (this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey.isDown;
+
+            if (this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey.isDown;
+
+            if (this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey.isDown;
+
+            if (this.sys.game.device.os.desktop && this.speedReady && !this.detected) {
+                const speed = 250;
+                this.player.setVelocity(0);
+                if (this.wasd.A.isDown) this.player.setVelocityX(-speed);
+                if (this.wasd.D.isDown) this.player.setVelocityX(speed);
+                if (this.wasd.W.isDown) this.player.setVelocityY(-speed);
+                if (this.wasd.S.isDown) this.player.setVelocityY(speed);
+                const vx = this.player.body.velocity.x, vy = this.player.body.velocity.y;
+                if (vx !== 0 && vy !== 0) {
+                    this.player.setVelocity(vx * speed / Math.sqrt(vx*vx+vy*vy), vy * speed / Math.sqrt(vx*vx+vy*vy));
+                }
+            }
+        }
+    }
+
+    // ==================== СЦЕНА 5: КОСМОС ====================
+    class SpaceScene extends Phaser.Scene {
+        constructor() { super('SpaceScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.dialogueActive = false;
+            this.asteroids = [];
+            this.reachedSun = false;
+            this.returningToEarth = false;
+
+            const worldW = 3000, worldH = H;
+            
+            this.cameras.main.setBounds(0, 0, worldW, worldH);
+            this.physics.world.setBounds(0, 0, worldW, worldH);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const scene = this;
+
+            // Фон
+            const bg = this.add.graphics();
+            bg.fillStyle(0x000011, 1);
+            bg.fillRect(0, 0, worldW, worldH);
+            
+            for (let i = 0; i < 200; i++) {
+                const x = Phaser.Math.Between(0, worldW);
+                const y = Phaser.Math.Between(0, worldH);
+                const r = Phaser.Math.Between(1, 2);
+                const alpha = Phaser.Math.Between(3, 10) / 10;
+                bg.fillStyle(0xffffff, alpha);
+                bg.fillCircle(x, y, r);
+            }
+
+            // Земля
+            bg.fillStyle(0x2244aa, 1);
+            bg.fillCircle(60, 240, 50);
+            bg.fillStyle(0x44aa44, 0.6);
+            bg.fillCircle(60, 240, 25);
+            this.add.text(60, 300, 'ЗЕМЛЯ', {
+                fontSize: '10px', fill: '#aaaaff', fontFamily: 'monospace',
+                stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5);
+
+            // Солнце (с пульсацией)
+            const sunGlow1 = this.add.circle(2940, 240, 100, 0xffee88, 0.2);
+            const sunGlow2 = this.add.circle(2940, 240, 80, 0xffdd44, 0.4);
+            const sunCore = this.add.circle(2940, 240, 60, 0xffaa00, 1);
+            
+            // Анимация пульсации Солнца
+            this.tweens.add({
+                targets: [sunGlow1, sunGlow2],
+                scaleX: 1.15,
+                scaleY: 1.15,
+                duration: 800,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut'
+            });
+            
+            this.add.text(2940, 320, 'СОЛНЦЕ', {
+                fontSize: '10px', fill: '#ffffaa', fontFamily: 'monospace',
+                stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5);
+
+            // Эффект достижения Солнца (скрыт)
+            const sunReachEffect = this.add.graphics().setDepth(15).setVisible(false);
+            
+            // Астероиды
+            const asteroidGroup = this.physics.add.staticGroup();
+            
+            function createAsteroid(x, y, size) {
+                const a = scene.add.rectangle(x, y, size, size, 0x888888);
+                a.setStrokeStyle(2, 0x666666);
+                scene.add.circle(x - size/4, y - size/4, size/6, 0x666666);
+                scene.add.circle(x + size/3, y + size/5, size/8, 0x666666);
+                asteroidGroup.add(a);
+                a.body.setSize(size, size);
+                return a;
+            }
+
+            // Центральные астероиды
+            createAsteroid(400, 200, 50);
+            createAsteroid(500, 300, 40);
+            createAsteroid(650, 150, 55);
+            createAsteroid(800, 350, 45);
+            createAsteroid(900, 200, 50);
+            createAsteroid(1050, 280, 40);
+            createAsteroid(1150, 150, 55);
+            createAsteroid(1300, 320, 45);
+            createAsteroid(1400, 200, 50);
+            createAsteroid(1550, 260, 40);
+            createAsteroid(1650, 170, 55);
+            createAsteroid(1800, 340, 45);
+            createAsteroid(1900, 220, 50);
+            createAsteroid(2050, 300, 40);
+            createAsteroid(2150, 160, 55);
+            createAsteroid(2300, 280, 45);
+            createAsteroid(2400, 200, 50);
+            createAsteroid(2550, 330, 40);
+            createAsteroid(2650, 190, 55);
+            createAsteroid(2750, 260, 45);
+
+            // Астероиды вдоль верхней стены
+            createAsteroid(350, 40, 40);
+            createAsteroid(550, 50, 45);
+            createAsteroid(750, 35, 50);
+            createAsteroid(950, 55, 40);
+            createAsteroid(1100, 30, 45);
+            createAsteroid(1250, 50, 50);
+            createAsteroid(1450, 40, 40);
+            createAsteroid(1600, 55, 45);
+            createAsteroid(1750, 30, 50);
+            createAsteroid(1950, 45, 40);
+            createAsteroid(2100, 50, 45);
+            createAsteroid(2250, 35, 50);
+            createAsteroid(2450, 55, 40);
+            createAsteroid(2600, 30, 45);
+            createAsteroid(2800, 50, 50);
+
+            // Астероиды вдоль нижней стены
+            createAsteroid(380, 440, 40);
+            createAsteroid(580, 430, 45);
+            createAsteroid(780, 445, 50);
+            createAsteroid(920, 425, 40);
+            createAsteroid(1080, 450, 45);
+            createAsteroid(1280, 430, 50);
+            createAsteroid(1420, 440, 40);
+            createAsteroid(1580, 425, 45);
+            createAsteroid(1720, 450, 50);
+            createAsteroid(1880, 435, 40);
+            createAsteroid(2020, 440, 45);
+            createAsteroid(2180, 430, 50);
+            createAsteroid(2380, 445, 40);
+            createAsteroid(2520, 425, 45);
+            createAsteroid(2680, 450, 50);
+            createAsteroid(2830, 430, 40);
+
+            // Ракета
+            this.player = this.physics.add.sprite(120, 240, 'seva');
+            this.player.setScale(2);
+            this.player.setCollideWorldBounds(true);
+            this.player.setDepth(10);
+            this.player.body.setSize(14, 20); // уменьшенный хитбокс
+            this.player.body.setOffset(9, 6);
+            
+            const fireG = this.add.graphics().setDepth(9);
+            
+            this.updateFire = function() {
+                fireG.clear();
+                if (this.player.body.velocity.x !== 0 || this.player.body.velocity.y !== 0) {
+                    const angle = Math.atan2(this.player.body.velocity.y, this.player.body.velocity.x);
+                    const fx = this.player.x - Math.cos(angle) * 20;
+                    const fy = this.player.y - Math.sin(angle) * 20;
+                    fireG.fillStyle(0xff8800, 0.8);
+                    fireG.fillCircle(fx, fy, 6);
+                    fireG.fillStyle(0xffcc00, 0.6);
+                    fireG.fillCircle(fx, fy, 3);
+                }
+            };
+
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { 
+                scene.thoughtText.setAlpha(0); 
+                scene.dialogueActive = false;
+            }
+            function doStoryThought(text, duration = 3000) {
+                scene.dialogueActive = true;
+                scene.actionButton.setAlpha(0);
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+                thoughtTimer = setTimeout(hideThought, duration);
+            }
+
+            this.physics.add.collider(this.player, asteroidGroup, (player, asteroid) => {
+                // На пути к Солнцу — возврат к Земле
+                if (!scene.returningToEarth) {
+                    player.x = 120;
+                    player.y = 240;
+                } else {
+                    // На обратном пути — возврат к Солнцу
+                    player.x = 2880;
+                    player.y = 240;
+                }
+                player.setVelocity(0);
+                this.cameras.main.shake(400, 0.015);
+                if (!this.dialogueActive) {
+                    showThought('💥 Астероид!', 1500);
+                }
+            });
+
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            // UI
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '16px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.actionButton = this.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            const progressBg = this.add.rectangle(320, 20, 300, 10, 0x333333);
+            progressBg.setStrokeStyle(1, 0x666666);
+            progressBg.setScrollFactor(0).setDepth(100);
+            
+            const progressFill = this.add.rectangle(170, 20, 0, 8, 0x44aaff);
+            progressFill.setOrigin(0, 0.5).setScrollFactor(0).setDepth(101);
+            
+            const progressLabel = this.add.text(320, 20, '🌍 Земля → Солнце ☀️', {
+                fontSize: '8px', fill: '#aaaaaa', fontFamily: 'monospace'
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+            
+            // Эффект достижения цели (вспышка по всему экрану)
+            const flashOverlay = this.add.rectangle(320, 240, 640, 480, 0xffffff, 0);
+            flashOverlay.setScrollFactor(0).setDepth(50);
+            
+            this.updateProgress = function() {
+                const progress = Phaser.Math.Clamp((this.player.x - 120) / (2940 - 120), 0, 1);
+                progressFill.width = 300 * progress;
+                
+                if (progress >= 0.95 && !this.reachedSun && !this.returningToEarth) {
+                    this.reachedSun = true;
+                    
+                    // Вспышка!
+                    flashOverlay.setAlpha(1);
+                    this.tweens.add({
+                        targets: flashOverlay,
+                        alpha: 0,
+                        duration: 1000,
+                        ease: 'Cubic.easeOut'
+                    });
+                    
+                    // Эффект у Солнца
+                    sunReachEffect.setVisible(true);
+                    sunReachEffect.clear();
+                    sunReachEffect.fillStyle(0xffffff, 0.8);
+                    sunReachEffect.fillCircle(2940, 240, 200);
+                    this.tweens.add({
+                        targets: sunReachEffect,
+                        alpha: 0,
+                        duration: 1500,
+                        ease: 'Cubic.easeOut',
+                        onComplete: () => sunReachEffect.setVisible(false)
+                    });
+                    
+                    doStoryThought('☀️ Достигли Солнца! Теперь обратно к Земле!', 3000);
+                    this.time.delayedCall(3000, () => {
+                        this.returningToEarth = true;
+                        progressLabel.setText('☀️ Солнце → Земля 🌍');
+                    });
+                }
+                
+                if (this.returningToEarth && progress <= 0.05 && this.reachedSun) {
+                    this.reachedSun = false;
+                    
+                    // Вспышка при возвращении
+                    flashOverlay.setAlpha(0.8);
+                    this.tweens.add({
+                        targets: flashOverlay,
+                        alpha: 0,
+                        duration: 800,
+                        ease: 'Cubic.easeOut'
+                    });
+                    
+                    doStoryThought('🌍 Вернулись на Землю! ✨', 2000);
+                    this.time.delayedCall(2000, () => {
+                        this.cameras.main.fadeOut(800, 0, 0, 0);
+                        this.time.delayedCall(800, () => {
+                            this.scene.start('DiveScene'); // потом заменить на 'DiveScene'
+                        });
+                    });
+                }
+            };
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = this.add.graphics().setDepth(6).setVisible(false);
+
+            this.wasd.W = this.input.keyboard.addKey('W'); this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S'); this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            this.checkZones = function() {};
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+            this.updateZoneGraphics = function() {};
+
+            const prevScene = this.scene.get('BaseScene');
+            if (prevScene && prevScene.inventory) this.inventory = [...prevScene.inventory];
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => showThought('Летим к Солнцу! Управляй ракетой (WASD).', 3000));
+            console.log('✅ Сцена 5: Космос.');
+        }
+
+        update() {
+            if (this.updateFire) this.updateFire();
+            if (this.updateProgress) this.updateProgress();
+
+            if (this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey.isDown;
+            if (this.showCoords && this.player) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.updateInventoryUI) this.updateInventoryUI();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+
+            if (this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey.isDown;
+
+            if (this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey.isDown;
+
+            if (this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey.isDown;
+
+            if (this.sys.game.device.os.desktop && this.speedReady) {
+                const speed = 1500;
+                const drag = 0.92;
+                
+                let ax = 0, ay = 0;
+                if (this.wasd.A.isDown) ax = -speed;
+                if (this.wasd.D.isDown) ax = speed;
+                if (this.wasd.W.isDown) ay = -speed;
+                if (this.wasd.S.isDown) ay = speed;
+
+                const vx = this.player.body.velocity.x + ax * (1/60);
+                const vy = this.player.body.velocity.y + ay * (1/60);
+                
+                this.player.setVelocity(vx * drag, vy * drag);
+                
+                const maxSpeed = 4000;
+                const currentSpeed = Math.sqrt(vx*vx + vy*vy);
+                if (currentSpeed > maxSpeed) {
+                    this.player.setVelocity(vx * maxSpeed / currentSpeed, vy * maxSpeed / currentSpeed);
+                }
+
+                if (Math.abs(vx) < 1 && Math.abs(vy) < 1 && ax === 0 && ay === 0) {
+                    this.player.setVelocity(0, 0);
+                }
+            }
+        }
+    }
+
+    // ==================== СЦЕНА 6: НЫРЯНИЕ (кат-сцена) ====================
+    class DiveScene extends Phaser.Scene {
+        constructor() { super('DiveScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            const skyHeight = 500;
+            const oceanDepth = 800;
+            const worldH = skyHeight + oceanDepth;
+            
+            this.cameras.main.setBackgroundColor('#000000');
+            this.cameras.main.fadeIn(1000, 0, 0, 0);
+            this.cameras.main.setBounds(0, 0, W, worldH);
+
+            const scene = this;
+
+            // === НЕБО ===
+            const sky = this.add.graphics();
+            const skyBands = [
+                { y: 0, h: 100, color: 0x0a0a2e },
+                { y: 100, h: 100, color: 0x1a1a4e },
+                { y: 200, h: 100, color: 0x334488 },
+                { y: 300, h: 100, color: 0x5577bb },
+                { y: 400, h: 100, color: 0x88aadd },
+            ];
+            skyBands.forEach(band => {
+                sky.fillStyle(band.color, 1);
+                sky.fillRect(0, band.y, W, band.h + 1);
+            });
+
+            for (let i = 0; i < 40; i++) {
+                const x = Phaser.Math.Between(0, W);
+                const y = Phaser.Math.Between(0, 250);
+                const alpha = y < 150 ? Phaser.Math.Between(5, 10)/10 : Phaser.Math.Between(1, 4)/10;
+                this.add.circle(x, y, Phaser.Math.Between(1, 2), 0xffffff, alpha);
+            }
+
+            const clouds = this.add.graphics();
+            clouds.fillStyle(0xffffff, 0.5);
+            [
+                [100, 350, 140], [160, 340, 90], [60, 355, 70],
+                [380, 370, 120], [440, 360, 80], [330, 375, 70],
+                [520, 340, 100], [580, 350, 80], [550, 360, 60]
+            ].forEach(([cx, cy, rw]) => {
+                clouds.fillEllipse(cx, cy, rw, 35);
+            });
+
+            // === ОКЕАН ===
+            const ocean = this.add.graphics();
+            ocean.setDepth(3);
+            const oceanBands = [
+                { y: skyHeight, h: 150, color: 0x115566 },
+                { y: skyHeight + 150, h: 200, color: 0x0a3344 },
+                { y: skyHeight + 350, h: 200, color: 0x051a22 },
+                { y: skyHeight + 550, h: 250, color: 0x020a11 },
+            ];
+            oceanBands.forEach(band => {
+                ocean.fillStyle(band.color, 1);
+                ocean.fillRect(0, band.y, W, band.h + 1);
+            });
+
+            // Поверхность воды
+            const waterSurface = this.add.graphics().setDepth(4);
+            waterSurface.fillStyle(0x44bbcc, 0.6);
+            waterSurface.fillRect(0, skyHeight, W, 3);
+            waterSurface.fillStyle(0x66ddff, 0.3);
+            waterSurface.fillRect(0, skyHeight + 3, W, 2);
+            waterSurface.fillStyle(0x88eeff, 0.15);
+            waterSurface.fillRect(0, skyHeight + 5, W, 2);
+
+            for (let i = 0; i < 8; i++) {
+                const bx = Phaser.Math.Between(20, W - 20);
+                this.add.rectangle(bx, skyHeight, Phaser.Math.Between(20, 50), 2, 0xffffff, 0.2).setDepth(5);
+            }
+
+            // === РАКЕТА ===
+            const body = this.add.rectangle(W/2, 80, 40, 24, 0xCCCCCC);
+            body.setStrokeStyle(2, 0xFFD700); body.setDepth(10);
+            const nose = this.add.triangle(W/2, 55, 0, 10, 10, 0, 20, 10, 0xFF4444).setDepth(11);
+            const fire = this.add.triangle(W/2, 75, 5, 0, 15, 8, 25, 0, 0xFF8800).setDepth(9);
+            
+            this.tweens.add({
+                targets: fire,
+                scaleY: 1.4,
+                duration: 150,
+                yoyo: true,
+                repeat: -1
+            });
+
+            // === ТЕКСТ ===
+            const titleText = this.add.text(W/2, 180, '', {
+                fontSize: '18px', fill: '#ffffff', fontFamily: 'monospace',
+                stroke: '#000000', strokeThickness: 3, align: 'center'
+            }).setOrigin(0.5).setDepth(20).setAlpha(0).setScrollFactor(0);
+
+            // === ТЁМНЫЙ ОВЕРЛЕЙ ===
+            const darkOverlay = this.add.rectangle(W/2, skyHeight + 100, W, oceanDepth, 0x001122, 0);
+            darkOverlay.setDepth(15);
+
+            // === ПУЗЫРИ ===
+            const bubbles = [];
+            for (let i = 0; i < 30; i++) {
+                const b = this.add.circle(0, 0, Phaser.Math.Between(2, 5), 0xaaddff, 0.7).setDepth(6).setVisible(false);
+                bubbles.push({ obj: b, speed: Phaser.Math.Between(30, 80) });
+            }
+
+            // === КАМЕРА ===
+            this.cameras.main.startFollow(body, true, 0.1, 0.1);
+            this.cameras.main.setFollowOffset(0, -80);
+
+            // === АНИМАЦИЯ ===
+            const timeline = this.time;
+
+            timeline.delayedCall(500, () => {
+                titleText.setText('Входим в атмосферу...');
+                scene.tweens.add({ targets: titleText, alpha: 1, duration: 500 });
+            });
+
+            timeline.delayedCall(2000, () => {
+                titleText.setText('Возвращаемся на Землю!');
+                scene.tweens.add({
+                    targets: [body, nose, fire],
+                    y: 350,
+                    angle: 10,
+                    duration: 2000,
+                    ease: 'Quad.easeIn'
+                });
+            });
+
+            timeline.delayedCall(4000, () => {
+                titleText.setText('Заходим на посадку!');
+                scene.tweens.add({
+                    targets: [body, nose, fire],
+                    y: skyHeight - 20,
+                    angle: 0,
+                    duration: 1500,
+                    ease: 'Quad.easeOut'
+                });
+            });
+
+            timeline.delayedCall(5500, () => {
+                titleText.setText('Погружаемся...');
+                
+                scene.tweens.add({
+                    targets: [body, nose, fire],
+                    y: skyHeight + 400,
+                    duration: 3500,
+                    ease: 'Quad.easeIn'
+                });
+
+                const spawnBubbles = (count, startY) => {
+                    for (let i = 0; i < count; i++) {
+                        scene.time.delayedCall(i * 60, () => {
+                            const b = bubbles.find(b => !b.obj.visible);
+                            if (!b) return;
+                            b.obj.setVisible(true);
+                            b.obj.y = startY + Phaser.Math.Between(0, 60);
+                            b.obj.x = body.x + Phaser.Math.Between(-40, 40);
+                            b.obj.alpha = 0.7;
+                            scene.tweens.add({
+                                targets: b.obj,
+                                y: b.obj.y - Phaser.Math.Between(60, 180),
+                                x: b.obj.x + Phaser.Math.Between(-40, 40),
+                                alpha: 0,
+                                duration: b.speed * 40,
+                                ease: 'Quad.easeOut',
+                                onComplete: () => b.obj.setVisible(false)
+                            });
+                        });
+                    }
+                };
+
+                spawnBubbles(10, skyHeight + 50);
+                scene.time.delayedCall(800, () => spawnBubbles(10, skyHeight + 180));
+                scene.time.delayedCall(1600, () => spawnBubbles(8, skyHeight + 300));
+
+                scene.tweens.add({
+                    targets: darkOverlay,
+                    alpha: 0.9,
+                    duration: 3000,
+                    ease: 'Quad.easeIn'
+                });
+            });
+
+            timeline.delayedCall(9500, () => {
+                scene.cameras.main.fadeOut(1000, 0, 0, 0);
+                scene.time.delayedCall(1000, () => {
+                    scene.scene.start('TitanicScene');
+                });
+            });
+
+            // === ПРОПУСТИТЬ ===
+            const skipText = this.add.text(W/2, H - 30, 'ПРОБЕЛ — пропустить', {
+                fontSize: '10px', fill: '#888888', fontFamily: 'monospace'
+            }).setOrigin(0.5).setDepth(20).setScrollFactor(0);
+
+            this.input.keyboard.addKey('SPACE').on('down', () => {
+                this.cameras.main.fadeOut(500, 0, 0, 0);
+                this.time.delayedCall(500, () => {
+                    this.scene.start('TitanicScene');
+                });
+            });
+
+            console.log('✅ Сцена 6: Ныряние.');
+        }
+    }
+
+    // ==================== СЦЕНА 7: ПОДНЯТИЕ ТИТАНИКА ====================
+    class TitanicScene extends Phaser.Scene {
+        constructor() { super('TitanicScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            const seafloorY = 900;
+            const worldH = 900;
+            
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.dialogueActive = false;
+            
+            this.ropeAttached = false;
+            this.lifting = false;
+            this.titanicLifted = false;
+            this.ropeGraphics = null;
+            this.titanic = null;
+            this.titanicBody = null;
+            this.titanicY = seafloorY;
+
+            this.cameras.main.setBounds(0, 0, W, worldH);
+            this.physics.world.setBounds(0, 0, W, worldH);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const scene = this;
+
+            // === ФОН — ОКЕАН ===
+            const bg = this.add.graphics();
+            const oceanBands = [
+                { y: 0, h: 120, color: 0x115566 },
+                { y: 120, h: 150, color: 0x0d4455 },
+                { y: 270, h: 200, color: 0x082233 },
+                { y: 470, h: 200, color: 0x041522 },
+                { y: 670, h: 150, color: 0x020a15 },
+                { y: 820, h: 80, color: 0x010508 },
+            ];
+            oceanBands.forEach(band => {
+                bg.fillStyle(band.color, 1);
+                bg.fillRect(0, band.y, W, band.h + 1);
+            });
+
+            // Дно
+            const seafloor = this.add.graphics().setDepth(2);
+            seafloor.fillStyle(0x8B7355, 1);
+            seafloor.fillRect(0, seafloorY, W, 300);
+            seafloor.fillStyle(0x7B6345, 1);
+            seafloor.fillRect(0, seafloorY, W, 15);
+            for (let i = 0; i < 15; i++) {
+                const sx = Phaser.Math.Between(20, W - 20);
+                const sy = seafloorY + Phaser.Math.Between(5, 40);
+                const sr = Phaser.Math.Between(3, 8);
+                seafloor.fillStyle(0x666666, 0.5);
+                seafloor.fillCircle(sx, sy, sr);
+            }
+
+            const floorBody = this.add.zone(W/2, seafloorY, W, 20);
+            this.physics.add.existing(floorBody, true);
+            floorBody.body.setSize(W, 20);
+
+            // Планктон
+            for (let i = 0; i < 60; i++) {
+                const x = Phaser.Math.Between(0, W);
+                const y = Phaser.Math.Between(100, seafloorY);
+                const size = Phaser.Math.Between(1, 2);
+                const alpha = Phaser.Math.Between(1, 4) / 10;
+                const dot = this.add.circle(x, y, size, 0xffffff, alpha);
+                this.tweens.add({
+                    targets: dot,
+                    x: x + Phaser.Math.Between(-30, 30),
+                    duration: Phaser.Math.Between(3000, 6000),
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.easeInOut'
+                });
+            }
+
+            // Поверхность
+            const surface = this.add.graphics().setDepth(4);
+            surface.fillStyle(0x44bbcc, 0.5);
+            surface.fillRect(0, 0, W, 4);
+
+            // === ТИТАНИК ===
+            this.titanic = this.add.graphics().setDepth(7);
+            
+            this.drawTitanic = function(y) {
+                this.titanic.clear();
+                this.titanic.fillStyle(0x444444, 1);
+                this.titanic.fillRect(W/2 - 80, y - 40, 160, 50);
+                this.titanic.fillStyle(0x666666, 1);
+                this.titanic.fillRect(W/2 - 60, y - 55, 120, 15);
+                this.titanic.fillStyle(0x8B0000, 1);
+                this.titanic.fillRect(W/2 - 20, y - 80, 10, 25);
+                this.titanic.fillRect(W/2 + 10, y - 75, 8, 20);
+                this.titanic.fillStyle(0x888800, 0.4);
+                [-40, -15, 10, 35].forEach(ox => {
+                    this.titanic.fillCircle(W/2 + ox, y - 25, 4);
+                });
+            };
+            
+            this.drawTitanic(seafloorY);
+
+            this.titanicBody = this.add.zone(W/2, seafloorY - 20, 160, 70);
+            this.physics.add.existing(this.titanicBody, true);
+            this.titanicBody.body.setSize(160, 70);
+            this.titanicBody.y = seafloorY - 20;
+            this.titanicY = seafloorY;
+
+            // === РАКЕТА ===
+            this.player = this.physics.add.sprite(W/2, 150, 'seva');
+            this.player.setScale(2);
+            this.player.setCollideWorldBounds(true);
+            this.player.setDepth(10);
+            this.player.body.setSize(14, 20);
+            this.player.body.setOffset(9, 6);
+            
+            const fireG = this.add.graphics().setDepth(9);
+            this.updateFire = function() {
+                fireG.clear();
+                const vx = this.player.body.velocity.x;
+                const vy = this.player.body.velocity.y;
+                if (vx !== 0 || vy !== 0) {
+                    const angle = Math.atan2(vy, vx);
+                    const fx = this.player.x - Math.cos(angle) * 20;
+                    const fy = this.player.y - Math.sin(angle) * 20;
+                    fireG.fillStyle(0xff8800, 0.8);
+                    fireG.fillCircle(fx, fy, 6);
+                    fireG.fillStyle(0xffcc00, 0.6);
+                    fireG.fillCircle(fx, fy, 3);
+                }
+            };
+
+            this.ropeGraphics = this.add.graphics().setDepth(6);
+            
+            // Клавиатура
+            this.wasd.W = this.input.keyboard.addKey('W');
+            this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S');
+            this.wasd.D = this.input.keyboard.addKey('D');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            // Мысли (ДО overlap)
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { 
+                scene.thoughtText.setAlpha(0); 
+                scene.dialogueActive = false;
+            }
+
+            // Захват Титаника
+            this.physics.add.overlap(this.player, this.titanicBody, () => {
+                if (!this.ropeAttached && !this.lifting) {
+                    this.ropeAttached = true;
+                    this.lifting = true;
+                    showThought('🔗 Трос закреплён! Тянем наверх!', 2500);
+                }
+            });
+
+            this.physics.add.collider(this.player, floorBody);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            // === UI ===
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '16px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            // Глубиномер
+            const depthBg = this.add.rectangle(630, 240, 8, 400, 0x333333, 0.7);
+            depthBg.setStrokeStyle(1, 0x666666);
+            depthBg.setScrollFactor(0).setDepth(100);
+            this.depthMarker = this.add.rectangle(630, 44, 12, 4, 0xff4444);
+            this.depthMarker.setScrollFactor(0).setDepth(101);
+            this.depthLabel = this.add.text(620, 450, '', {
+                fontSize: '8px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(101);
+            this.add.text(620, 42, '0m', {
+                fontSize: '7px', fill: '#aaaaaa', fontFamily: 'monospace'
+            }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(101);
+            this.add.text(620, 438, '900m', {
+                fontSize: '7px', fill: '#aaaaaa', fontFamily: 'monospace'
+            }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(101);
+            
+            this.updateDepthGauge = function() {
+                if (!this.player) return;
+                const depth = Phaser.Math.Clamp(this.player.y / seafloorY, 0, 1);
+                this.depthMarker.y = 44 + depth * 396;
+                this.depthLabel.setText(Math.floor(this.player.y) + 'm');
+            };
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            // === ЛОГИКА ТРОСА И ТИТАНИКА (быстрый подъём) ===
+            this.updateLifting = function() {
+                if (!this.lifting || !this.ropeAttached) return;
+                
+                const ropeLength = 140;
+                const playerX = this.player.x;
+                const playerY = this.player.y;
+                const titanicX = W/2;
+                const titanicTopY = this.titanicY - 30;
+                
+                const dx = playerX - titanicX;
+                const dy = playerY - titanicTopY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                // Ограничение окружностью
+                if (dist > ropeLength) {
+                    const angle = Math.atan2(dy, dx);
+                    this.player.x = titanicX + Math.cos(angle) * ropeLength;
+                    this.player.y = titanicTopY + Math.sin(angle) * ropeLength;
+                    const vx = this.player.body.velocity.x;
+                    const vy = this.player.body.velocity.y;
+                    const velAngle = Math.atan2(vy, vx);
+                    const velOut = Math.cos(velAngle - angle) * Math.sqrt(vx*vx + vy*vy);
+                    if (velOut > 0) {
+                        this.player.body.velocity.x -= Math.cos(angle) * velOut * 0.5;
+                        this.player.body.velocity.y -= Math.sin(angle) * velOut * 0.5;
+                    }
+                }
+                
+                // Титаник следует за Севой с небольшой задержкой
+                const targetTitanicY = playerY + 60; // Титаник на 60px ниже Севы
+                this.titanicY += (targetTitanicY - this.titanicY) * 0.08; // быстрое следование
+                
+                this.titanicY = Phaser.Math.Clamp(this.titanicY, 80, seafloorY);
+                
+                this.titanicBody.y = this.titanicY - 20;
+                this.drawTitanic(this.titanicY);
+                
+                // Трос
+                this.ropeGraphics.clear();
+                this.ropeGraphics.lineStyle(2, 0x888888, 0.8);
+                this.ropeGraphics.lineBetween(playerX, playerY + 15, titanicX, titanicTopY);
+                
+                // Победа: Сева у поверхности И Титаник почти на поверхности
+                if (playerY < 60 && this.titanicY < 150 && !this.titanicLifted) {
+                    this.titanicLifted = true;
+                    // НЕ отцепляем трос! Просто сообщение и переход
+                    showThought('🎉 Титаник на поверхности!', 3000);
+                    this.time.delayedCall(3000, () => {
+                        this.cameras.main.fadeOut(800, 0, 0, 0);
+                        this.time.delayedCall(800, () => {
+                            this.scene.start('ShoreScene');
+                        });
+                    });
+                }
+            };
+
+            this.checkZones = function() {};
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+            this.updateZoneGraphics = function() {};
+
+            const prevScene = this.scene.get('ShoreScene');
+            if (prevScene && prevScene.inventory) this.inventory = [...prevScene.inventory];
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => showThought('Найди Титаник и прикрепи трос! 🚀', 3000));
+            console.log('✅ Сцена 7: Титаник следует быстро, трос не отцепляется.');
+        }
+
+        update() {
+            if (this.updateFire) this.updateFire();
+            if (this.updateLifting) this.updateLifting();
+            if (this.updateDepthGauge) this.updateDepthGauge();
+
+            if (this.hKey && this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                if (this.coordsText) this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey ? this.hKey.isDown : false;
+            if (this.showCoords && this.player && this.coordsText) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.updateInventoryUI) this.updateInventoryUI();
+
+            if (this.fKey && this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey ? this.fKey.isDown : false;
+
+            if (this.gKey && this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                if (this.zoneGraphics) this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey ? this.gKey.isDown : false;
+
+            if (this.qKey && this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey ? this.qKey.isDown : false;
+
+            if (this.sys.game.device.os.desktop && this.speedReady && this.player && this.wasd) {
+                const speed = 800;
+                const drag = 0.95;
+                const gravity = 30;
+                
+                let ax = 0, ay = gravity;
+                if (this.wasd.A && this.wasd.A.isDown) ax = -speed;
+                if (this.wasd.D && this.wasd.D.isDown) ax = speed;
+                if (this.wasd.W && this.wasd.W.isDown) ay = -speed;
+                if (this.wasd.S && this.wasd.S.isDown) ay = speed;
+
+                const vx = this.player.body.velocity.x + ax * (1/60);
+                const vy = this.player.body.velocity.y + ay * (1/60);
+                
+                let finalVx = vx * drag;
+                let finalVy = vy * drag;
+                
+                // С тросом — без замедления при подъёме, просто тащим
+                
+                this.player.setVelocity(finalVx, finalVy);
+                
+                const maxSpeed = 1000;
+                const spd = Math.sqrt(finalVx*finalVx + finalVy*finalVy);
+                if (spd > maxSpeed) {
+                    this.player.setVelocity(finalVx * maxSpeed / spd, finalVy * maxSpeed / spd);
+                }
+
+                if (Math.abs(finalVx) < 1 && Math.abs(finalVy) < 1 && ax === 0 && ay === gravity) {
+                    this.player.setVelocity(0, gravity);
+                }
+            }
+        }
+    }
+
+    // ==================== СЦЕНА 8: БЕРЕГ И КРАФТ ====================
+    class ShoreScene extends Phaser.Scene {
+        constructor() { super('ShoreScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            const worldW = 1400, worldH = 480;
+            const S = 3;
+            
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.dialogueActive = false;
+            
+            this.sticks = 0;
+            this.webs = 0;
+            this.hasFishingRod = false;
+            this.hasKey = false;
+            this.fishingActive = false;
+            this.fishBarX = 0;
+            this.fishTargetX = 0;
+            this.fishProgress = 0;
+
+            this.cameras.main.setBounds(0, 0, worldW, worldH);
+            this.physics.world.setBounds(0, 0, worldW, worldH);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const scene = this;
+
+            // === ФОН ===
+            const bg = this.add.graphics();
+            bg.fillStyle(0x5588cc, 1); bg.fillRect(0, 0, worldW, 120);
+            bg.fillStyle(0x3366aa, 1); bg.fillRect(0, 120, 180, 360);
+            bg.fillStyle(0xddcc88, 1); bg.fillRect(180, 120, 320, 360);
+            bg.fillStyle(0xeedd99, 1); bg.fillRect(180, 120, 320, 20);
+            bg.fillStyle(0x558844, 1); bg.fillRect(500, 120, 900, 360);
+            bg.fillStyle(0x776633, 0.6);
+            bg.fillRect(600, 120, 40, 360);
+            bg.fillRect(600, 220, 200, 30);
+            bg.fillRect(800, 220, 30, 260);
+            bg.fillRect(830, 380, 300, 30);
+            bg.fillRect(1130, 220, 30, 260);
+
+            const obstacles = [];
+
+            function addObstacle(x, y, w, h) {
+                const obj = scene.add.zone(x + w/2, y + h/2, w, h);
+                scene.physics.add.existing(obj, true);
+                obj.body.setSize(w, h);
+                obstacles.push(obj);
+            }
+
+            addObstacle(0, 120, 180, 360);
+            addObstacle(0, 0, worldW, 120);
+            addObstacle(0, 0, 0, worldH);
+            addObstacle(worldW, 0, 0, worldH);
+            addObstacle(0, worldH, worldW, 0);
+
+            // === ОБЪЕКТЫ ===
+            const treePositions = [
+                [520, 140], [680, 180], [550, 300], [700, 350],
+                [850, 150], [950, 200], [900, 350], [1050, 160],
+                [1150, 300], [1250, 180], [1300, 350]
+            ];
+            treePositions.forEach(([tx, ty]) => {
+                scene.add.rectangle(tx, ty, 16, 40, 0x664422);
+                scene.add.circle(tx, ty - 20, 25, 0x337733);
+                scene.add.circle(tx - 12, ty - 12, 18, 0x338833);
+                scene.add.circle(tx + 12, ty - 12, 18, 0x338833);
+                addObstacle(tx - 12, ty - 20, 24, 50);
+            });
+
+            // Ракета
+            const rocketWreck = scene.add.rectangle(220, 340, 60, 24, 0x999999);
+            rocketWreck.setStrokeStyle(2, 0x666666); rocketWreck.angle = 25;
+            scene.add.triangle(205, 325, 0, 10, 10, 0, 20, 10, 0x994444).angle = 25;
+            addObstacle(200, 320, 50, 40);
+
+            // Титаник
+            const titanicWreck = scene.add.graphics();
+            titanicWreck.fillStyle(0x555555, 1); titanicWreck.fillRect(320, 280, 120, 40);
+            titanicWreck.fillStyle(0x777777, 1); titanicWreck.fillRect(340, 260, 80, 20);
+            titanicWreck.fillStyle(0x8B0000, 1); titanicWreck.fillRect(370, 235, 8, 25);
+            titanicWreck.fillRect(395, 240, 6, 20);
+            addObstacle(320, 260, 120, 60);
+
+            // Кира
+            const kira = scene.add.rectangle(200, 350, 20*S, 24*S, 0xADD8E6);
+            kira.setStrokeStyle(2, 0x6699CC); kira.setDepth(8);
+            scene.add.circle(194, 342, 2*S, 0x000000).setDepth(9);
+            scene.add.circle(206, 342, 2*S, 0x000000).setDepth(9);
+            scene.add.rectangle(200, 354, 8*S, 2*S, 0x000000).setDepth(9);
+            addObstacle(190, 340, 20, 30);
+
+            // Дом
+            const house = scene.add.rectangle(1200, 300, 150, 100, 0x8B6914);
+            house.setStrokeStyle(3, 0x6B4914);
+            scene.add.triangle(1200, 230, 0, 40, 85, 0, 170, 40, 0x993333);
+            const door = scene.add.rectangle(1200, 330, 35, 50, 0x4B2904);
+            door.setStrokeStyle(2, 0x3B1904);
+            scene.add.circle(1214, 330, 3, 0xFFD700);
+            addObstacle(1125, 240, 150, 90);
+
+            // Верстак
+            const workbench = scene.add.rectangle(1350, 400, 40, 24, 0x8B6914);
+            workbench.setStrokeStyle(2, 0x6B4914);
+            addObstacle(1330, 388, 40, 24);
+
+            // Палки
+            const stickSpots = [
+                { x: 560, y: 380, taken: false, gfx: null },
+                { x: 720, y: 420, taken: false, gfx: null },
+                { x: 880, y: 430, taken: false, gfx: null },
+            ];
+            stickSpots.forEach(s => {
+                const stick = scene.add.rectangle(s.x, s.y, 20, 3, 0x996633);
+                stick.angle = Phaser.Math.Between(0, 360);
+                s.gfx = stick;
+            });
+
+            // Паутины
+            const webSpots = [
+                { x: 660, y: 150, taken: false, gfx: null },
+                { x: 920, y: 180, taken: false, gfx: null },
+            ];
+            webSpots.forEach(s => {
+                const web = scene.add.graphics();
+                web.lineStyle(1, 0xcccccc, 0.6);
+                web.lineBetween(s.x - 10, s.y - 10, s.x + 10, s.y + 10);
+                web.lineBetween(s.x + 10, s.y - 10, s.x - 10, s.y + 10);
+                web.lineBetween(s.x, s.y - 12, s.x, s.y + 12);
+                s.gfx = web;
+            });
+
+            // === ИГРОК ===
+            this.player = this.physics.add.sprite(250, 250, 'seva');
+            this.player.setScale(S);
+            this.player.setCollideWorldBounds(true);
+            this.player.setDepth(10);
+            this.player.body.setSize(14, 24);
+            this.player.body.setOffset(9, 4);
+
+            this.physics.add.collider(this.player, obstacles);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            // === UI ===
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '14px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.actionButton = this.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = this.add.graphics().setDepth(6).setVisible(false);
+
+            this.resourceText = this.add.text(10, 460, '', {
+                fontSize: '10px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            // Мини-игра рыбалки
+            this.fishingUI = this.add.container(0, 0).setDepth(50).setVisible(false).setScrollFactor(0);
+            const fishBg = this.add.rectangle(320, 300, 300, 40, 0x333333, 0.9).setStrokeStyle(2, 0x888888);
+            this.fishBar = this.add.rectangle(200, 300, 20, 36, 0xff4444);
+            this.fishTarget = this.add.rectangle(0, 300, 8, 30, 0x44ff44);
+            const fishLabel = this.add.text(320, 270, '🎣 РЫБАЛКА — нажми E когда зелёный в красном!', {
+                fontSize: '10px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5);
+            this.fishingUI.add([fishBg, this.fishBar, this.fishTarget, fishLabel]);
+
+            this.pickupText = this.add.text(320, 440, '', {
+                fontSize: '12px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(25).setAlpha(0);
+
+            // Клавиатура
+            this.wasd.W = this.input.keyboard.addKey('W');
+            this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S');
+            this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            this.updateZoneGraphics = function() {
+                if (!scene.zoneGraphics) return;
+                scene.zoneGraphics.clear();
+                if (!scene.showZones) return;
+                const zones = scene.getActionZones();
+                if (!zones) return;
+                for (const z of zones) {
+                    if (z.isRect) {
+                        scene.zoneGraphics.fillStyle(z.color || 0xffffff, 0.2);
+                        scene.zoneGraphics.fillRect(z.x, z.y, z.w, z.h);
+                        scene.zoneGraphics.lineStyle(2, z.color || 0xffffff, 0.8);
+                        scene.zoneGraphics.strokeRect(z.x, z.y, z.w, z.h);
+                    } else {
+                        scene.zoneGraphics.fillStyle(z.color || 0xffffff, 0.2);
+                        scene.zoneGraphics.fillCircle(z.x, z.y, z.range);
+                        scene.zoneGraphics.lineStyle(2, z.color || 0xffffff, 0.8);
+                        scene.zoneGraphics.strokeCircle(z.x, z.y, z.range);
+                    }
+                }
+            };
+
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { 
+                scene.thoughtText.setAlpha(0); 
+                scene.dialogueActive = false;
+            }
+
+            function showPickup(text) {
+                scene.pickupText.setText(text);
+                scene.pickupText.setAlpha(1);
+                scene.pickupText.y = 440;
+                scene.tweens.add({
+                    targets: scene.pickupText,
+                    alpha: 0,
+                    y: 430,
+                    duration: 1000,
+                    ease: 'Quad.easeOut',
+                    onComplete: () => { scene.pickupText.y = 440; }
+                });
+            }
+
+            // Зоны взаимодействия
+            scene.getActionZones = function() {
+                const zones = [];
+                
+                zones.push({ 
+                    x: 150, y: 120, w: 70, h: 360, isRect: true, 
+                    action: scene.hasFishingRod && !scene.hasKey ? 'lake' : 'noRod', 
+                    color: 0x3366aa 
+                });
+                
+                stickSpots.forEach((s, i) => {
+                    if (!s.taken) zones.push({ x: s.x, y: s.y, range: 40, action: 'stick' + i, color: 0x996633 });
+                });
+                webSpots.forEach((s, i) => {
+                    if (!s.taken) zones.push({ x: s.x, y: s.y, range: 40, action: 'web' + i, color: 0xcccccc });
+                });
+                if (!scene.hasFishingRod) zones.push({ x: 1350, y: 400, range: 60, action: 'workbench', color: 0x8B6914 });
+                if (scene.hasKey) zones.push({ x: 1200, y: 330, range: 80, action: 'door', color: 0x4B2904 });
+                else if (!scene.hasKey) zones.push({ x: 1200, y: 330, range: 80, action: 'lockedDoor', color: 0x4B2904 });
+                zones.push({ x: 200, y: 350, range: 90, action: 'kira', color: 0xADD8E6 });
+                
+                return zones;
+            };
+
+            function doAction() {
+                if (scene.fishingActive || scene.dialogueActive) return;
+                if (!scene.currentAction) return;
+                
+                if (scene.currentAction.startsWith('stick')) {
+                    const i = parseInt(scene.currentAction.replace('stick', ''));
+                    stickSpots[i].taken = true;
+                    stickSpots[i].gfx.setVisible(false);
+                    scene.sticks++;
+                    scene.inventory.push('Палка');
+                    showPickup('🌿 Палка добавлена в инвентарь! (' + scene.sticks + '/3)');
+                    showThought('Палка! 🌿', 1000);
+                } else if (scene.currentAction.startsWith('web')) {
+                    const i = parseInt(scene.currentAction.replace('web', ''));
+                    webSpots[i].taken = true;
+                    webSpots[i].gfx.setVisible(false);
+                    scene.webs++;
+                    scene.inventory.push('Паутина');
+                    showPickup('🕸️ Паутина добавлена в инвентарь! (' + scene.webs + '/2)');
+                    showThought('Паутина! 🕸️', 1000);
+                } else if (scene.currentAction === 'workbench') {
+                    if (scene.sticks >= 3 && scene.webs >= 2) {
+                        scene.hasFishingRod = true;
+                        for (let j = 0; j < 3; j++) { const idx = scene.inventory.indexOf('Палка'); if (idx >= 0) scene.inventory.splice(idx, 1); }
+                        for (let j = 0; j < 2; j++) { const idx = scene.inventory.indexOf('Паутина'); if (idx >= 0) scene.inventory.splice(idx, 1); }
+                        scene.inventory.push('Удочка');
+                        scene.sticks = 0; scene.webs = 0;
+                        showPickup('🎣 Удочка готова! Иди к океану!');
+                        showThought('Удочка готова! 🎣', 2000);
+                    } else {
+                        showThought('Нужно 3 палки и 2 паутины. (' + scene.sticks + '/3 🌿, ' + scene.webs + '/2 🕸️)', 2500);
+                    }
+                } else if (scene.currentAction === 'lake') {
+                    scene.fishingActive = true;
+                    scene.fishProgress = 0;
+                    scene.fishBarX = 200;
+                    scene.fishTargetX = Phaser.Math.Between(180, 420);
+                    scene.fishingUI.setVisible(true);
+                    scene.actionButton.setAlpha(0);
+                } else if (scene.currentAction === 'noRod') {
+                    showThought('Это океан. Мы оттуда приплыли.', 2500);
+                } else if (scene.currentAction === 'door') {
+                    showThought('Ключ подходит! 🔑', 2000);
+                    scene.time.delayedCall(2000, () => {
+                        scene.cameras.main.fadeOut(800, 0, 0, 0);
+                        scene.time.delayedCall(800, () => { scene.scene.start('ChereshaScene'); });
+                    });
+                } else if (scene.currentAction === 'lockedDoor') {
+                    showThought('Заперто. Нужен ключ. Может, в океане?', 2500);
+                } else if (scene.currentAction === 'kira') {
+                    showThought('Кира: "Я пока тут подожду. Поймай ключ в океане!"', 2500);
+                }
+                
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                thoughtTimer = setTimeout(hideThought, 2500);
+            }
+
+            this.actionKey.on('down', doAction);
+
+            // Рыбалка
+            this.input.keyboard.addKey('E').on('down', () => {
+                if (!scene.fishingActive) return;
+                
+                const barLeft = scene.fishBarX;
+                const barRight = scene.fishBarX + 20;
+                const targetX = scene.fishTargetX;
+                
+                if (targetX >= barLeft - 4 && targetX <= barRight + 4) {
+                    scene.fishProgress++;
+                    scene.fishTargetX = Phaser.Math.Between(180, 420);
+                    if (scene.fishProgress >= 3) {
+                        scene.fishingActive = false;
+                        scene.fishingUI.setVisible(false);
+                        scene.hasKey = true;
+                        scene.inventory.push('Ключ');
+                        showPickup('🔑 Ключ найден! К дому!');
+                        showThought('Ключ! 🔑 Он был в рыбе! Теперь к дому!', 3000);
+                        thoughtTimer = setTimeout(hideThought, 3000);
+                    }
+                } else {
+                    scene.fishProgress = Math.max(0, scene.fishProgress - 1);
+                }
+            });
+
+            this.checkZones = function() {
+                if (scene.fishingActive || scene.dialogueActive) {
+                    scene.actionButton.setAlpha(0);
+                    return;
+                }
+                const zones = scene.getActionZones();
+                let found = null;
+                for (const z of zones) {
+                    if (z.isRect) {
+                        if (scene.player.x > z.x && scene.player.x < z.x + z.w &&
+                            scene.player.y > z.y && scene.player.y < z.y + z.h) {
+                            found = z; break;
+                        }
+                    } else {
+                        if (Phaser.Math.Distance.Between(scene.player.x, scene.player.y, z.x, z.y) < z.range) { found = z; break; }
+                    }
+                }
+                if (found) {
+                    scene.currentAction = found.action;
+                    scene.actionButton.setAlpha(1);
+                    // Нормальные названия
+                    switch(found.action) {
+                        case 'lake': scene.actionButton.setText('[E] Ловить рыбу'); break;
+                        case 'noRod': scene.actionButton.setText('[E] Океан'); break;
+                        case 'door': scene.actionButton.setText('[E] Открыть дверь'); break;
+                        case 'lockedDoor': scene.actionButton.setText('[E] Дверь'); break;
+                        case 'kira': scene.actionButton.setText('[E] Кира'); break;
+                        case 'workbench': scene.actionButton.setText('[E] Верстак'); break;
+                        default:
+                            if (found.action.startsWith('stick')) scene.actionButton.setText('[E] Палка');
+                            else if (found.action.startsWith('web')) scene.actionButton.setText('[E] Паутина');
+                            else scene.actionButton.setText('[E]');
+                    }
+                } else {
+                    scene.currentAction = null;
+                    scene.actionButton.setAlpha(0);
+                }
+            };
+
+            this.updateFishing = function() {
+                if (!scene.fishingActive) return;
+                
+                // Бар ездит по всей ширине рамки: 170-450 (рамка 170-470)
+                const barMin = 175;
+                const barMax = 445;
+                const range = (barMax - barMin) / 2;
+                const center = (barMin + barMax) / 2;
+                scene.fishBarX = center + Math.sin(scene.time.now / 400) * range;
+                scene.fishBar.x = scene.fishBarX;
+                scene.fishBar.y = 300;
+                
+                scene.fishTarget.x = scene.fishTargetX;
+                scene.fishTarget.y = 300;
+                
+                const progressColors = [0xff4444, 0xff8844, 0xffaa44, 0x44ff44];
+                scene.fishBar.fillColor = progressColors[Math.min(scene.fishProgress, 3)];
+            };
+
+            this.updateResourceText = function() {
+                scene.resourceText.setText(
+                    '🌿 Палки: ' + scene.sticks + '/3  🕸️ Паутина: ' + scene.webs + '/2  🎣 ' + (scene.hasFishingRod ? '✅' : '❌') + '  🔑 ' + (scene.hasKey ? '✅' : '❌')
+                );
+            };
+
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+
+            const prevScene = this.scene.get('TitanicScene');
+            if (prevScene && prevScene.inventory) this.inventory = [...prevScene.inventory];
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => showThought('Надо найти ключ от дома... Осмотрюсь.', 3000));
+            console.log('✅ Сцена 8: Ползунок по всей ширине, названия кнопок.');
+        }
+
+        update() {
+            if (this.updateFishing) this.updateFishing();
+            if (this.updateResourceText) this.updateResourceText();
+
+            if (this.hKey && this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                if (this.coordsText) this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey ? this.hKey.isDown : false;
+            if (this.showCoords && this.player && this.coordsText) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.checkZones && !this.fishingActive) this.checkZones();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+            if (this.updateInventoryUI) this.updateInventoryUI();
+
+            if (this.fKey && this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey ? this.fKey.isDown : false;
+
+            if (this.gKey && this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                if (this.zoneGraphics) this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey ? this.gKey.isDown : false;
+
+            if (this.qKey && this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey ? this.qKey.isDown : false;
+
+            if (this.sys.game.device.os.desktop && this.speedReady && this.player && this.wasd && !this.fishingActive) {
+                const speed = 250;
+                this.player.setVelocity(0);
+                if (this.wasd.A && this.wasd.A.isDown) this.player.setVelocityX(-speed);
+                if (this.wasd.D && this.wasd.D.isDown) this.player.setVelocityX(speed);
+                if (this.wasd.W && this.wasd.W.isDown) this.player.setVelocityY(-speed);
+                if (this.wasd.S && this.wasd.S.isDown) this.player.setVelocityY(speed);
+                const vx = this.player.body.velocity.x, vy = this.player.body.velocity.y;
+                if (vx !== 0 && vy !== 0) {
+                    this.player.setVelocity(vx * speed / Math.sqrt(vx*vx+vy*vy), vy * speed / Math.sqrt(vx*vx+vy*vy));
+                }
+            }
+        }
+    }
+
+    // ==================== СЦЕНА 9: В ГОСТЯХ У ЧЕРЕМШИ ====================
+    class ChereshaScene extends Phaser.Scene {
+        constructor() { super('ChereshaScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            const S = 3;
+            
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.dialogueActive = false;
+            this.metCheresha = false;
+            this.talkedToKira = false;
+
+            this.cameras.main.setBounds(0, 0, W, H);
+            this.physics.world.setBounds(0, 0, W, H);
+            this.cameras.main.fadeIn(800, 0, 0, 0);
+
+            const scene = this;
+
+            // === ФОН ===
+            const bg = this.add.graphics();
+            bg.fillStyle(0x8B6914, 1); bg.fillRect(0, 0, W, H);
+            bg.lineStyle(1, 0x7B5914, 0.2);
+            for (let x = 0; x < W; x += 32) for (let y = 0; y < H; y += 32) bg.strokeRect(x, y, 32, 32);
+            bg.fillStyle(0xA08050, 1);
+            bg.fillRect(0, 0, W, 8); bg.fillRect(0, H-8, W, 8);
+            bg.fillRect(0, 0, 8, H); bg.fillRect(W-8, 0, 8, H);
+            bg.fillStyle(0x993333, 0.6);
+            bg.fillRoundedRect(200, 300, 240, 120, 10);
+
+            const obstacles = [];
+
+            function addObstacle(x, y, w, h) {
+                const obj = scene.add.zone(x + w/2, y + h/2, w, h);
+                scene.physics.add.existing(obj, true);
+                obj.body.setSize(w, h);
+                obstacles.push(obj);
+            }
+
+            addObstacle(0, 0, W, 8);
+            addObstacle(0, H-8, W, 8);
+            addObstacle(0, 0, 8, H);
+            addObstacle(W-8, 0, 8, H);
+
+            // Камин
+            const fireplace = this.add.image(100, 72, 'kamin').setDisplaySize(64*S, 32*S);
+            this.physics.add.existing(fireplace, true);
+            fireplace.body.setSize(64*S, 32*S);
+            obstacles.push(fireplace);
+
+            // Диван
+            const sofa = this.add.rectangle(350, 380, 80*S, 20*S, 0x886644);
+            sofa.setStrokeStyle(2, 0x664422);
+            this.physics.add.existing(sofa, true);
+            sofa.body.setSize(80*S, 20*S);
+            obstacles.push(sofa);
+
+            // Стол
+            const table = this.add.rectangle(500, 360, 50*S, 24*S, 0x6B4914);
+            table.setStrokeStyle(2, 0x4B2904);
+            this.physics.add.existing(table, true);
+            table.body.setSize(50*S, 24*S);
+            obstacles.push(table);
+            this.add.circle(490, 350, 5*S, 0xDDDDDD).setDepth(1);
+            this.add.circle(510, 350, 5*S, 0xDDDDDD).setDepth(1);
+
+            // Черемша
+            const cheresha = this.add.graphics().setDepth(8);
+            cheresha.fillStyle(0xDDBB66, 1);
+            cheresha.fillCircle(400, 300, 20);
+            cheresha.fillStyle(0x000000, 1);
+            cheresha.fillCircle(393, 293, 3);
+            cheresha.fillCircle(407, 293, 3);
+            cheresha.fillRect(395, 305, 10, 2);
+            cheresha.lineStyle(2, 0x997733, 1);
+            cheresha.lineBetween(390, 320, 385, 335);
+            cheresha.lineBetween(400, 320, 400, 338);
+            cheresha.lineBetween(410, 320, 415, 335);
+            
+            const chereshaBody = this.add.zone(400, 300, 40, 50);
+            this.physics.add.existing(chereshaBody, true);
+            chereshaBody.body.setSize(40, 50);
+            obstacles.push(chereshaBody);
+
+            // Кира (выше на 30 — y=310 вместо 340)
+            const kira = this.add.rectangle(550, 310, 20*S, 24*S, 0xADD8E6);
+            kira.setStrokeStyle(2, 0x6699CC); kira.setDepth(8);
+            this.add.circle(544, 302, 2*S, 0x000000).setDepth(9);
+            this.add.circle(556, 302, 2*S, 0x000000).setDepth(9);
+            this.add.rectangle(550, 314, 8*S, 2*S, 0x000000).setDepth(9);
+            const kiraBody = this.add.zone(550, 310, 20*S, 24*S);
+            this.physics.add.existing(kiraBody, true);
+            kiraBody.body.setSize(20*S, 24*S);
+            obstacles.push(kiraBody);
+
+            // === ИГРОК ===
+            this.player = this.physics.add.sprite(150, 300, 'seva');
+            this.player.setScale(S);
+            this.player.setCollideWorldBounds(true);
+            this.player.setDepth(10);
+            this.player.body.setSize(14, 24);
+            this.player.body.setOffset(9, 4);
+
+            this.physics.add.collider(this.player, obstacles);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            // === UI ===
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '14px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.actionButton = this.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(20);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = this.add.graphics().setDepth(6).setVisible(false);
+
+            this.wasd.W = this.input.keyboard.addKey('W');
+            this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S');
+            this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            this.updateZoneGraphics = function() {
+                if (!scene.zoneGraphics) return;
+                scene.zoneGraphics.clear();
+                if (!scene.showZones) return;
+                const zones = scene.getActionZones();
+                if (!zones) return;
+                for (const z of zones) {
+                    scene.zoneGraphics.fillStyle(z.color || 0xffffff, 0.2);
+                    scene.zoneGraphics.fillCircle(z.x, z.y, z.range);
+                    scene.zoneGraphics.lineStyle(2, z.color || 0xffffff, 0.8);
+                    scene.zoneGraphics.strokeCircle(z.x, z.y, z.range);
+                }
+            };
+
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { 
+                scene.thoughtText.setAlpha(0); 
+                scene.dialogueActive = false;
+            }
+            function doStoryThought(text, duration = 3000) {
+                scene.dialogueActive = true;
+                scene.actionButton.setAlpha(0);
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+                thoughtTimer = setTimeout(hideThought, duration);
+            }
+
+            scene.getActionZones = function() {
+                return [
+                    { x: 400, y: 300, range: 70, action: 'cheresha', color: 0xDDBB66 },
+                    { x: 550, y: 310, range: 70, action: 'kira', color: 0xADD8E6 },
+                    { x: 100, y: 72,  range: 100, action: 'fireplace', color: 0xff8800 },
+                ];
+            };
+
+            function doAction() {
+                if (scene.dialogueActive) return;
+                if (!scene.currentAction) return;
+                if (thoughtTimer) clearTimeout(thoughtTimer); hideThought();
+
+                switch(scene.currentAction) {
+                    case 'cheresha':
+                        if (scene.metCheresha) {
+                            showThought('Черемша: "Угощайтесь чаем, не стесняйтесь!"', 2500);
+                            thoughtTimer = setTimeout(hideThought, 2500);
+                        } else {
+                            doStoryThought('Черемша: "О, Сева! С днём рождения! Как дела?"', 3000);
+                            scene.time.delayedCall(3000, () => {
+                                doStoryThought('Сева: "Спасибо! Всё отлично, мы с Кирой целое приключение пережили!"', 3500);
+                            });
+                            scene.time.delayedCall(6500, () => {
+                                doStoryThought('Черемша: "Ничего себе! Ну проходите, угощайтесь чаем!"', 3000);
+                            });
+                            scene.time.delayedCall(9500, () => {
+                                doStoryThought('Сева: "Как тут хорошо... Но чего-то не хватает. Точно — Тома и Римуса!"', 3500);
+                                scene.metCheresha = true;
+                            });
+                        }
+                        break;
+                        
+                    case 'kira':
+                        if (!scene.metCheresha) {
+                            doStoryThought('Кира: "Поздоровайся с Черемшой сначала!"', 2500);
+                        } else if (!scene.talkedToKira) {
+                            doStoryThought('Сева: "Кира, я хочу к Тому. Составишь компанию?"', 3000);
+                            scene.time.delayedCall(3000, () => {
+                                doStoryThought('Кира: "Я пока у Черемши останусь. А ты иди, у тебя же есть летучий порох!"', 4000);
+                                scene.talkedToKira = true;
+                            });
+                        } else {
+                            showThought('Кира: "Иди к Тому! Увидимся позже!"', 2500);
+                            thoughtTimer = setTimeout(hideThought, 2500);
+                        }
+                        break;
+                        
+                    case 'fireplace':
+                        if (scene.talkedToKira) {
+                            doStoryThought('Использовать летучий порох? Летим к Тому! ✨', 2000);
+                            scene.time.delayedCall(2000, () => {
+                                scene.cameras.main.fadeOut(800, 0, 0, 0);
+                                scene.time.delayedCall(800, () => {
+                                    scene.scene.start('TomScene'); // потом TomScene
+                                });
+                            });
+                        } else {
+                            showThought('Пока рано уходить. Надо поговорить с Кирой.', 2500);
+                            thoughtTimer = setTimeout(hideThought, 2500);
+                        }
+                        break;
+                }
+            }
+
+            this.actionKey.on('down', doAction);
+
+            this.checkZones = function() {
+                if (scene.dialogueActive) {
+                    scene.actionButton.setAlpha(0);
+                    return;
+                }
+                const zones = scene.getActionZones();
+                let found = null;
+                for (const z of zones) {
+                    if (Phaser.Math.Distance.Between(scene.player.x, scene.player.y, z.x, z.y) < z.range) { found = z; break; }
+                }
+                if (found) {
+                    scene.currentAction = found.action;
+                    scene.actionButton.setAlpha(1);
+                    switch(found.action) {
+                        case 'cheresha': scene.actionButton.setText('[E] Черемша'); break;
+                        case 'kira': scene.actionButton.setText('[E] Кира'); break;
+                        case 'fireplace': scene.actionButton.setText('[E] Камин'); break;
+                    }
+                } else {
+                    scene.currentAction = null;
+                    scene.actionButton.setAlpha(0);
+                }
+            };
+
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+
+            const prevScene = this.scene.get('ShoreScene');
+            if (prevScene && prevScene.inventory) this.inventory = [...prevScene.inventory];
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => showThought('Как тут уютно... Черемша!', 3000));
+            console.log('✅ Сцена 9: Черемша, Кира выше, мысли о друзьях.');
+        }
+
+        update() {
+            if (this.hKey && this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                if (this.coordsText) this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey ? this.hKey.isDown : false;
+            if (this.showCoords && this.player && this.coordsText) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.checkZones) this.checkZones();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+            if (this.updateInventoryUI) this.updateInventoryUI();
+
+            if (this.fKey && this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey ? this.fKey.isDown : false;
+
+            if (this.gKey && this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                if (this.zoneGraphics) this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey ? this.gKey.isDown : false;
+
+            if (this.qKey && this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey ? this.qKey.isDown : false;
+
+            if (this.sys.game.device.os.desktop && this.speedReady && this.player && this.wasd) {
+                const speed = 250;
+                this.player.setVelocity(0);
+                if (this.wasd.A && this.wasd.A.isDown) this.player.setVelocityX(-speed);
+                if (this.wasd.D && this.wasd.D.isDown) this.player.setVelocityX(speed);
+                if (this.wasd.W && this.wasd.W.isDown) this.player.setVelocityY(-speed);
+                if (this.wasd.S && this.wasd.S.isDown) this.player.setVelocityY(speed);
+                const vx = this.player.body.velocity.x, vy = this.player.body.velocity.y;
+                if (vx !== 0 && vy !== 0) {
+                    this.player.setVelocity(vx * speed / Math.sqrt(vx*vx+vy*vy), vy * speed / Math.sqrt(vx*vx+vy*vy));
+                }
+            }
+        }
+    }
+
+    // ==================== СЦЕНА 10: У ТОМА ====================
+    class TomScene extends Phaser.Scene {
+        constructor() { super('TomScene'); }
+
+        create() {
+            const W = 640, H = 480;
+            const worldW = 1200, worldH = 480;
+            const S = 3;
+            
+            if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = false;
+            this.physics.world.drawDebug = false;
+
+            this.player = null; this.wasd = {}; this.actionButton = null;
+            this.currentAction = null; this.thoughtText = null; this.actionKey = null;
+            this.showDebug = false; this.fKey = null; this.fWasDown = false;
+            this.showZones = false; this.gKey = null; this.gWasDown = false;
+            this.qKey = null; this.qWasDown = false;
+            this.hKey = null; this.hWasDown = false; this.showCoords = false; this.coordsText = null;
+            this.inventory = []; this.inventoryText = null; this.inventoryBg = null;
+            this.invTitle = null; this.showInventory = false;
+            this.zoneGraphics = null;
+            this.speedReady = false;
+            this.dialogueActive = false;
+            this.canMove = true;
+            
+            this.phase = 0;
+            this.metRimus = false;
+            this.metTom = false;
+            this.fallTriggered = false;
+
+            this.cameras.main.setBounds(0, 0, worldW, worldH);
+            this.physics.world.setBounds(0, 0, worldW, worldH);
+            this.cameras.main.fadeIn(1500, 0, 0, 0);
+
+            const scene = this;
+
+            // === ФОН ===
+            const bg = this.add.graphics();
+            bg.fillStyle(0x1a1a1a, 1);
+            bg.fillRect(0, 0, worldW, worldH);
+
+            const obstacles = [];
+
+            function addObstacle(x, y, w, h) {
+                const obj = scene.add.zone(x + w/2, y + h/2, w, h);
+                scene.physics.add.existing(obj, true);
+                obj.body.setSize(w, h);
+                obstacles.push(obj);
+            }
+
+            // === СТЕНЫ ===
+            const walls = this.add.graphics();
+            walls.fillStyle(0x444444, 1);
+            
+            walls.fillRect(0, 0, worldW, 8);
+            walls.fillRect(0, worldH-8, worldW, 8);
+            walls.fillRect(0, 0, 8, worldH);
+            walls.fillRect(worldW-8, 0, 8, worldH);
+            addObstacle(0, 0, worldW, 8);
+            addObstacle(0, worldH-8, worldW, 8);
+            addObstacle(0, 0, 8, worldH);
+            addObstacle(worldW-8, 0, 8, worldH);
+
+            // Коридор
+            walls.fillRect(0, 0, 320, 160);
+            addObstacle(0, 0, 320, 160);
+            walls.fillRect(0, 320, 320, 160);
+            addObstacle(0, 320, 320, 160);
+            walls.fillRect(320, 0, 8, 180);
+            addObstacle(320, 0, 8, 180);
+            walls.fillRect(320, 300, 8, 180);
+            addObstacle(320, 300, 8, 180);
+
+            // Стена гостиной (скрыта)
+            this.livingWall = this.add.graphics();
+            this.livingWall.fillStyle(0x4a3a2a, 1);
+            this.livingWall.fillRect(600, 0, 8, 200);
+            this.livingWall.fillRect(600, 320, 8, 160);
+            this.livingWall.setVisible(false);
+            const lwTop = this.add.zone(604, 100, 8, 200);
+            const lwBot = this.add.zone(604, 400, 8, 160);
+            this.physics.add.existing(lwTop, true); lwTop.body.setSize(8, 200); lwTop.setVisible(false);
+            this.physics.add.existing(lwBot, true); lwBot.body.setSize(8, 160); lwBot.setVisible(false);
+            this.livingObstacles = [lwTop, lwBot];
+
+            // === КОВРИК И РИМУС (скрыты) ===
+            this.rugGfx = this.add.graphics();
+            this.rugGfx.fillStyle(0x664444, 0.6);
+            this.rugGfx.fillRoundedRect(200, 220, 80, 40, 6);
+            this.rugGfx.setVisible(false);
+
+            this.rimusGfx = this.add.graphics().setDepth(8);
+            this.rimusGfx.fillStyle(0xCC9966, 1);
+            this.rimusGfx.fillRect(230, 230, 42, 21);
+            this.rimusGfx.fillStyle(0x000000, 1);
+            this.rimusGfx.fillCircle(235, 237, 3);
+            this.rimusGfx.fillRect(242, 242, 8, 2);
+            this.rimusGfx.setVisible(false);
+
+            this.rimusBody = this.add.zone(250, 240, 14*S, 20*S);
+            this.physics.add.existing(this.rimusBody, true);
+            this.rimusBody.body.setSize(14*S, 20*S);
+            this.rimusBody.setVisible(false);
+
+            // === ГОСТИНАЯ ===
+            const sofa = this.add.rectangle(850, 380, 80*S, 20*S, 0x664422);
+            sofa.setStrokeStyle(2, 0x442200);
+            this.physics.add.existing(sofa, true);
+            sofa.body.setSize(80*S, 20*S);
+            obstacles.push(sofa);
+
+            const tomGfx = this.add.graphics().setDepth(8);
+            tomGfx.fillStyle(0x33AA33, 1);
+            tomGfx.fillRect(870, 320, 20*S, 24*S);
+            tomGfx.fillStyle(0x000000, 1);
+            tomGfx.fillCircle(864, 312, 2*S);
+            tomGfx.fillCircle(876, 312, 2*S);
+            tomGfx.fillRect(870, 326, 6*S, 2*S);
+            
+            const tomBody = this.add.zone(870, 320, 20*S, 24*S);
+            this.physics.add.existing(tomBody, true);
+            tomBody.body.setSize(20*S, 24*S);
+            obstacles.push(tomBody);
+
+            const projector = this.add.rectangle(950, 340, 12*S, 8*S, 0x333333);
+            projector.setStrokeStyle(1, 0x555555);
+            this.add.triangle(950, 330, 0, 0, 12*S, 0, 6*S, -8*S, 0x444444);
+
+            // === ИГРОК ===
+            this.player = this.physics.add.sprite(60, 240, 'seva');
+            this.player.setScale(S);
+            this.player.setCollideWorldBounds(true);
+            this.player.setDepth(10);
+            this.player.body.setSize(14, 20);
+            this.player.body.setOffset(9, 8);
+
+            this.physics.add.collider(this.player, obstacles);
+            this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+
+            // === ТЕМНОТА ===
+            this.darkOverlay = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.85);
+            this.darkOverlay.setDepth(50).setScrollFactor(0);
+
+            // === UI ===
+            this.add.text(10, 10, 'F-хитбоксы G-зоны Q-инвентарь H-коорд', {
+                fontSize: '9px', fill: '#aaaaaa', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100);
+
+            this.thoughtText = this.add.text(320, 470, '', {
+                fontSize: '14px', fill: '#ffffff', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                wordWrap: { width: 620 }, align: 'center'
+            }).setOrigin(0.5, 1).setScrollFactor(0).setAlpha(0).setDepth(60);
+
+            this.actionButton = this.add.text(580, 340, '[E]', {
+                fontSize: '16px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 3,
+                backgroundColor: '#333333', padding: { x: 6, y: 3 }
+            }).setOrigin(0.5).setScrollFactor(0).setAlpha(0).setDepth(60);
+
+            this.inventoryBg = this.add.rectangle(320, 420, 300, 160, 0x222222, 0.9).setStrokeStyle(2, 0x888888);
+            this.inventoryBg.setScrollFactor(0).setDepth(30).setVisible(false);
+            this.invTitle = this.add.text(320, 350, 'ИНВЕНТАРЬ', {
+                fontSize: '14px', fill: '#ffdd00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(31).setVisible(false);
+            this.inventoryText = this.add.text(200, 380, '', {
+                fontSize: '12px', fill: '#ffffff', fontFamily: 'monospace', wordWrap: { width: 240 }
+            }).setScrollFactor(0).setDepth(31).setVisible(false);
+
+            this.coordsText = this.add.text(10, 25, '', {
+                fontSize: '9px', fill: '#00ff00', fontFamily: 'monospace', stroke: '#000000', strokeThickness: 2
+            }).setScrollFactor(0).setDepth(100).setVisible(false);
+
+            this.zoneGraphics = this.add.graphics().setDepth(6).setVisible(false);
+
+            this.wasd.W = this.input.keyboard.addKey('W');
+            this.wasd.A = this.input.keyboard.addKey('A');
+            this.wasd.S = this.input.keyboard.addKey('S');
+            this.wasd.D = this.input.keyboard.addKey('D');
+            this.actionKey = this.input.keyboard.addKey('E');
+            this.fKey = this.input.keyboard.addKey('F');
+            this.gKey = this.input.keyboard.addKey('G');
+            this.qKey = this.input.keyboard.addKey('Q');
+            this.hKey = this.input.keyboard.addKey('H');
+
+            this.updateZoneGraphics = function() {
+                if (!scene.zoneGraphics) return;
+                scene.zoneGraphics.clear();
+                if (!scene.showZones) return;
+                const zones = scene.getActionZones();
+                if (!zones) return;
+                for (const z of zones) {
+                    scene.zoneGraphics.fillStyle(z.color || 0xffffff, 0.2);
+                    scene.zoneGraphics.fillCircle(z.x, z.y, z.range);
+                    scene.zoneGraphics.lineStyle(2, z.color || 0xffffff, 0.8);
+                    scene.zoneGraphics.strokeCircle(z.x, z.y, z.range);
+                }
+            };
+
+            let thoughtTimer = null;
+
+            function showThought(text, duration = 3000) {
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+            }
+            function hideThought() { 
+                scene.thoughtText.setAlpha(0); 
+                scene.dialogueActive = false;
+            }
+            function doStoryThought(text, duration = 3000) {
+                scene.dialogueActive = true;
+                scene.actionButton.setAlpha(0);
+                if (thoughtTimer) clearTimeout(thoughtTimer);
+                scene.thoughtText.setText(text); scene.thoughtText.setAlpha(1);
+                thoughtTimer = setTimeout(hideThought, duration);
+            }
+
+            // === ТРИГГЕР ПАДЕНИЯ ===
+            this.checkFall = function() {
+                if (!this.fallTriggered && this.player && this.player.x > 280 && this.phase === 0) {
+                    this.fallTriggered = true;
+                    this.canMove = false;
+                    this.dialogueActive = true;
+                    // Сбрасываем скорость, чтобы не проехать дальше
+                    this.player.setVelocity(0, 0);
+                    
+                    scene.tweens.add({
+                        targets: scene.player,
+                        y: scene.player.y + 50,
+                        angle: 80,
+                        duration: 600,
+                        ease: 'Quad.easeIn',
+                        onComplete: () => {
+                            scene.player.angle = 0;
+                            scene.player.y -= 30;
+                            doStoryThought('Ай! Обо что-то запнулась...', 2500);
+                            scene.time.delayedCall(2500, () => {
+                                // Свет!
+                                scene.tweens.add({
+                                    targets: scene.darkOverlay,
+                                    alpha: 0,
+                                    duration: 1200,
+                                    ease: 'Quad.easeOut'
+                                });
+                                scene.livingWall.setVisible(true);
+                                scene.livingObstacles.forEach(o => {
+                                    o.setVisible(true);
+                                    scene.physics.add.collider(scene.player, o);
+                                });
+                                scene.rugGfx.setVisible(true);
+                                scene.rimusGfx.setVisible(true);
+                                scene.rimusBody.setVisible(true);
+                                scene.physics.add.collider(scene.player, scene.rimusBody);
+                                
+                                doStoryThought('*Свет включился*', 2000);
+                                scene.time.delayedCall(2000, () => {
+                                    doStoryThought('Римус: "МММ?? Кто здесь? А, Сева!"', 3000);
+                                    scene.phase = 1;
+                                    scene.metRimus = true;
+                                    scene.canMove = true;
+                                });
+                            });
+                        }
+                    });
+                }
+            };
+
+            scene.getActionZones = function() {
+                const zones = [];
+                if (scene.phase >= 1 && !scene.metTom) zones.push({ x: 250, y: 240, range: 70, action: 'rimus', color: 0xCC9966 });
+                if (scene.phase >= 1) zones.push({ x: 870, y: 320, range: 70, action: 'tom', color: 0x33AA33 });
+                return zones;
+            };
+
+            function doAction() {
+                if (scene.dialogueActive || scene.phase === 0) return;
+                if (!scene.currentAction) return;
+                if (thoughtTimer) clearTimeout(thoughtTimer); hideThought();
+
+                switch(scene.currentAction) {
+                    case 'rimus':
+                        if (!scene.metTom) {
+                            doStoryThought('Римус: "Сева! С днём рождения! Том в гостиной, иди к нему!"', 3500);
+                            scene.time.delayedCall(3500, () => {
+                                doStoryThought('Сева: "Спасибо! А ты чего на полу?"', 2500);
+                            });
+                            scene.time.delayedCall(6000, () => {
+                                doStoryThought('Римус: "У меня новая идея... расскажу позже."', 3000);
+                            });
+                        } else {
+                            showThought('Римус: "Иди, он тебя ждёт!"', 2000);
+                            thoughtTimer = setTimeout(hideThought, 2000);
+                        }
+                        break;
+                        
+                    case 'tom':
+                        if (!scene.metTom) {
+                            scene.metTom = true;
+                            doStoryThought('Том: "Сева! С днём рождения!!" 🎉', 3000);
+                            scene.time.delayedCall(3000, () => {
+                                doStoryThought('Сева: "Том! Спасибо! У вас тут темнота..."', 2500);
+                            });
+                            scene.time.delayedCall(5500, () => {
+                                doStoryThought('Том: "Пойдём, мы кое-что приготовили. Садись на диван."', 3500);
+                            });
+                            scene.time.delayedCall(9000, () => {
+                                doStoryThought('*Все садятся. Том включает проектор...*', 3000);
+                            });
+                            scene.time.delayedCall(12000, () => {
+                                scene.cameras.main.fadeOut(1000, 0, 0, 0);
+                                scene.time.delayedCall(1000, () => {
+                                    scene.scene.start('SpaceScene'); // потом ProjectorScene
+                                });
+                            });
+                        }
+                        break;
+                }
+            }
+
+            this.actionKey.on('down', doAction);
+
+            this.checkZones = function() {
+                if (scene.dialogueActive || scene.phase === 0) {
+                    scene.actionButton.setAlpha(0);
+                    return;
+                }
+                const zones = scene.getActionZones();
+                let found = null;
+                for (const z of zones) {
+                    if (Phaser.Math.Distance.Between(scene.player.x, scene.player.y, z.x, z.y) < z.range) { found = z; break; }
+                }
+                if (found) {
+                    scene.currentAction = found.action;
+                    scene.actionButton.setAlpha(1);
+                    switch(found.action) {
+                        case 'rimus': scene.actionButton.setText('[E] Римус'); break;
+                        case 'tom': scene.actionButton.setText('[E] Том'); break;
+                    }
+                } else {
+                    scene.currentAction = null;
+                    scene.actionButton.setAlpha(0);
+                }
+            };
+
+            this.updateInventoryUI = function() {
+                const vis = scene.showInventory;
+                scene.inventoryBg.setVisible(vis); scene.invTitle.setVisible(vis); scene.inventoryText.setVisible(vis);
+                if (vis) scene.inventoryText.setText(scene.inventory.length === 0 ? '  (пусто)' : scene.inventory.map(i => '  • ' + i).join('\n'));
+            };
+
+            const prevScene = this.scene.get('ChereshaScene');
+            if (prevScene && prevScene.inventory) this.inventory = [...prevScene.inventory];
+
+            this.time.delayedCall(100, () => { this.speedReady = true; });
+            this.time.delayedCall(500, () => doStoryThought('Тут так темно... Надо пройти вперёд.', 3000));
+            console.log('✅ Сцена 10: фикс скорости при падении.');
+        }
+
+        update() {
+            if (this.checkFall) this.checkFall();
+
+            if (this.hKey && this.hKey.isDown && !this.hWasDown) {
+                this.showCoords = !this.showCoords;
+                if (this.coordsText) this.coordsText.setVisible(this.showCoords);
+            }
+            this.hWasDown = this.hKey ? this.hKey.isDown : false;
+            if (this.showCoords && this.player && this.coordsText) {
+                this.coordsText.setText('X: ' + Math.floor(this.player.x) + ' | Y: ' + Math.floor(this.player.y));
+            }
+
+            if (this.checkZones) this.checkZones();
+            if (this.updateZoneGraphics) this.updateZoneGraphics();
+            if (this.updateInventoryUI) this.updateInventoryUI();
+
+            if (this.fKey && this.fKey.isDown && !this.fWasDown) {
+                this.showDebug = !this.showDebug;
+                if (this.physics.world.debugGraphic) this.physics.world.debugGraphic.visible = this.showDebug;
+                this.physics.world.drawDebug = this.showDebug;
+            }
+            this.fWasDown = this.fKey ? this.fKey.isDown : false;
+
+            if (this.gKey && this.gKey.isDown && !this.gWasDown) {
+                this.showZones = !this.showZones;
+                if (this.zoneGraphics) this.zoneGraphics.setVisible(this.showZones);
+            }
+            this.gWasDown = this.gKey ? this.gKey.isDown : false;
+
+            if (this.qKey && this.qKey.isDown && !this.qWasDown) {
+                this.showInventory = !this.showInventory;
+            }
+            this.qWasDown = this.qKey ? this.qKey.isDown : false;
+
+            if (this.sys.game.device.os.desktop && this.speedReady && this.player && this.wasd && this.canMove && !this.dialogueActive) {
+                const speed = 250;
+                this.player.setVelocity(0);
+                if (this.wasd.A && this.wasd.A.isDown) this.player.setVelocityX(-speed);
+                if (this.wasd.D && this.wasd.D.isDown) this.player.setVelocityX(speed);
+                if (this.wasd.W && this.wasd.W.isDown) this.player.setVelocityY(-speed);
+                if (this.wasd.S && this.wasd.S.isDown) this.player.setVelocityY(speed);
+                const vx = this.player.body.velocity.x, vy = this.player.body.velocity.y;
+                if (vx !== 0 && vy !== 0) {
+                    this.player.setVelocity(vx * speed / Math.sqrt(vx*vx+vy*vy), vy * speed / Math.sqrt(vx*vx+vy*vy));
+                }
+            }
+        }
+    }
+    
+    // ==================== КОНФИГ ====================
+    const config = {
+        type: Phaser.AUTO, width: 640, height: 480, backgroundColor: '#0a0a2e',
+        physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: true } },
+        scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, roundPixels: true, max: { width: 640, height: 480 } },
+        scene: [StartScene, RoomScene, LupinScene, BaseScene, SpaceScene, DiveScene, TitanicScene, ShoreScene, ChereshaScene, TomScene]
+    };
+
+    const game = new Phaser.Game(config);
+    console.log('🎮 Игра готова!');
+};
+</script>
+</body>
+</html>
